@@ -1,0 +1,159 @@
+# Cloakwise Configuration
+# Adaptive VPN Cluster Defense System
+
+node:
+  id: "cluster-001"
+  admin_contact: "admin@example.com"
+  cluster_peers: []
+
+models:
+  specialists_dir: "./models/specialists/"
+  big_momma: "./models/big_momma.gguf"
+  # OpenAI-compatible API endpoint (LM Studio, ollama, vLLM, etc.)
+  api_endpoint: "http://localhost:1234/v1"
+  # Model name (optional - some servers auto-select loaded model)
+  # api_model: "ministral-3-3b-instruct"
+
+  inference:
+    threads: 4
+    context_size: 2048
+    batch_size: 512
+    temperature: 0.1
+    max_tokens: 256
+
+confidence:
+  # Threshold for specialist consensus (0.0 - 1.0)
+  specialist_threshold: 0.95
+  # Maximum time to wait for Big Momma decision (ms)
+  escalation_timeout_ms: 5000
+  # Minimum specialists needed for consensus
+  min_specialists_for_consensus: 3
+
+fallback:
+  # Rotate profile every N hours (even if no threats)
+  timed_rotation_hours: 4
+  # Rotate after N connection failures
+  failure_threshold: 50
+  # Time window for counting failures (minutes)
+  failure_window_minutes: 10
+  # Health check interval (seconds)
+  health_check_interval_secs: 60
+  # Endpoints for health checks
+  health_check_endpoints:
+    - "https://www.google.com"
+    - "https://cloudflare.com/cdn-cgi/trace"
+    - "https://www.microsoft.com"
+  # Order of profiles to rotate through
+  profile_rotation_order:
+    - "https_clone"
+    - "video_call"
+    - "websocket"
+    - "gaming"
+  # Profile to use in safe mode
+  safe_mode_profile: "https_clone"
+  # How long to stay in safe mode (minutes)
+  safe_mode_lock_minutes: 30
+
+profiles:
+  # HTTPS Clone - looks like normal HTTPS traffic
+  https_clone:
+    protocol: cloak
+    port: 443
+    obfuscation: tls1_3
+    timing: web_browsing
+    padding: variable
+    max_concurrent: 100
+
+  # Video Call - mimics WebRTC traffic
+  video_call:
+    protocol: amneziawg
+    port: 443
+    timing: webrtc_pattern
+    padding: variable
+    max_concurrent: 10
+
+  # WebSocket - looks like WebSocket traffic
+  websocket:
+    protocol: shadowsocks
+    port: 443
+    obfuscation: websocket_upgrade
+    timing: bursty
+    padding: variable
+    max_concurrent: 50
+
+  # Gaming - mimics game traffic patterns
+  gaming:
+    protocol: amneziawg
+    port: 443
+    timing: game_traffic_pattern
+    padding: fixed_mtu
+    max_concurrent: 20
+
+vpn:
+  interface: "wg0"
+  config_dir: "./configs/vpn/"
+  reload_command: "echo VPN reload not configured"
+  # Optional hooks for profile switching
+  # pre_switch_hook: "/usr/local/bin/pre-switch.sh"
+  # post_switch_hook: "/usr/local/bin/post-switch.sh"
+
+clients:
+  # Port for client configuration API
+  config_api_port: 8080
+  # Enable push notifications to clients
+  push_notifications: false
+  # Bind address (default: all interfaces)
+  # api_bind_address: "127.0.0.1"
+  # API authentication token
+  # api_auth_token: "your-secure-token-here"
+
+telemetry:
+  # How to collect telemetry: vpn_logs, packet_capture, or both
+  capture_method: vpn_logs
+  # Path to VPN log files
+  log_path: "./logs/vpn/"
+  # Sampling rate (1.0 = 100%)
+  sample_rate: 1.0
+  # Interface for packet capture (if using packet_capture)
+  # packet_capture_interface: "wg0"
+
+# UDP mesh: STUN (NAT), optional HTTP signaling, PSK-encrypted control messages
+mesh:
+  enabled: false
+  listen_port: 19735
+  stun_servers:
+    - "stun.l.google.com:19302"
+    - "stun1.l.google.com:19302"
+  # signaling_base_url: "https://your-rendezvous.example.com/v1"
+  # signaling_token: "bearer-token"
+  # psk: "change-me-shared-secret"
+  bootstrap_peer_addrs: []
+  stun_refresh_secs: 120
+  signaling_poll_secs: 45
+  # Tailscale-compatible overlay without Tailscale cloud: run your own Headscale, then:
+  # overlay:
+  #   kind: headscale_cli
+  #   login_server: "https://headscale.example.com"
+  #   # auth_key_file: "./secrets/tailscale-auth.key"   # or env CLOAKWISE_TAILSCALE_AUTH_KEY
+  #   accept_routes: false
+  #   advertise_routes: []
+  #   # tailscale_binary: "tailscale"
+
+# Autonomous LLM deploy agent (writes under workspace_dir; docker needs allow_docker_exec + API flag)
+deploy:
+  workspace_dir: "./data/deploy_workspace"
+  max_tool_rounds: 24
+  max_completion_tokens: 4096
+  allow_docker_exec: false
+
+logging:
+  # Log level: trace, debug, info, warn, error
+  level: "info"
+  # Log file path
+  file: "./logs/cloakwise.log"
+  # Use JSON format for logs
+  json_format: false
+  # Maximum log file size (MB)
+  max_size_mb: 100
+  # Maximum number of log files to keep
+  max_files: 5

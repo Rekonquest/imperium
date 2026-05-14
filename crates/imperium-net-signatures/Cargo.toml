@@ -1,0 +1,27 @@
+[package]
+name = "imperium-net-signatures"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Bundled and extracted signature databases, extraction crate, operator approval"
+
+[dependencies]
+imperium-bus = { path = "../imperium-bus" }
+imperium-protocol = { path = "../imperium-protocol" }
+imperium-store = { path = "../imperium-store" }
+imperium-memory-log = { path = "../imperium-memory-log" }
+imperium-net-crypto = { path = "../imperium-net-crypto" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+parking_lot = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }
+yara-x = { workspace = true }

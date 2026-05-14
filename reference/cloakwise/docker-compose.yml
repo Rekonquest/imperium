@@ -1,0 +1,20 @@
+# Self-hosted Cloakwise stack. Override config and point models.api_endpoint at your LLM (host.docker.internal on Docker Desktop).
+services:
+  cloakwise:
+    build: .
+    image: cloakwise:local
+    ports:
+      - "8080:8080"
+    volumes:
+      - cloakwise-data:/data/cloakwise
+      # For in-container deploy workspace + configs, copy default.yaml and set deploy.workspace_dir to /data/cloakwise/deploy_workspace
+      - ./configs/default.yaml:/etc/cloakwise/config.yaml:ro
+    environment:
+      RUST_LOG: info
+    # LLM on host (LM Studio / Ollama):
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  cloakwise-data:

@@ -1,0 +1,18 @@
+[package]
+name = "imperium-bus"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "In-process typed message bus for the Imperium runtime"
+
+[dependencies]
+imperium-protocol = { path = "../imperium-protocol" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

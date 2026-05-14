@@ -1,0 +1,14 @@
+# Place GGUF model files here
+#
+# Required models:
+# - specialists/*.gguf - Small (<1B) models for specialist swarm
+# - gpt-oss-20b-trendyol-Q4.gguf - Big Momma model (3-20B)
+#
+# Recommended models:
+# - Big Momma: https://huggingface.co/mradermacher/gpt-oss-20b-trendyol-instruct-data-i1-GGUF
+# - Alternative: https://huggingface.co/fdtn-ai/Foundation-Sec-8B
+#
+# Specialists will be fine-tuned from smaller models like:
+# - TinyLlama
+# - Phi-2
+# - Qwen-0.5B

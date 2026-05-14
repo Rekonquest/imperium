@@ -1,0 +1,103 @@
+[package]
+name = "cloakwise"
+version = "0.1.0"
+edition = "2021"
+description = "Adaptive VPN Cluster Defense System with AI-driven traffic profile switching"
+license = "MIT"
+authors = ["VPN Defense Team"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full", "signal"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Logging/tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+
+# HTTP server for client config API
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Embedded database for state persistence
+sled = "0.34"
+
+# Config templating
+tera = "1"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Async utilities
+futures = "0.3"
+async-trait = "0.1"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Random number generation
+rand = "0.8"
+
+# HTTP client for health checks
+reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
+
+# Process management
+nix = { version = "0.27", features = ["signal", "process"] }
+
+# IP address handling
+ipnet = "2"
+
+# UUID generation
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# System info
+hostname = "0.3"
+
+# Notify for file watching
+notify = "6"
+
+# Parking lot for faster mutexes
+parking_lot = "0.12"
+
+# Base64 encoding
+base64 = "0.22"
+
+# Cryptography (unified engine)
+aes-gcm = "0.10"
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+zeroize = "1"
+getrandom = "0.2"
+
+# Zero-copy buffers
+bytes = "1"
+
+# Caching
+lru = "0.12"
+
+# Lazy statics
+once_cell = "1"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3"
+pretty_assertions = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[[bin]]
+name = "cloakwise"
+path = "src/main.rs"

@@ -1,0 +1,13 @@
+---
+description: Cloakwise Rust project conventions and verification
+globs: "**/*.rs"
+alwaysApply: false
+---
+
+# Cloakwise
+
+- **Rust** workspace: primary crate `cloakwise`, entry `src/main.rs`.
+- After substantive edits run `cargo fmt`, `cargo clippy -- -D warnings`, and `cargo test` from the repo root.
+- Config and defaults live in `src/config/schema.rs` and `configs/default.yaml`; keep them in sync when adding fields.
+- Mesh: `src/mesh/`; Headscale-compatible overlay is configured under `mesh.overlay` (see `MeshOverlay` in schema) and implemented in `src/mesh/overlay.rs`.
+- For fuller workflow and file map, use the project skill **cloakwise-rust** (`.cursor/skills/cloakwise-rust/SKILL.md`).

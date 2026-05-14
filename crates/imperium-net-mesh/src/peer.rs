@@ -1,0 +1,161 @@
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use chrono::{DateTime, Utc};
+use imperium_protocol::{PeerId, SessionId};
+use parking_lot::RwLock;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PeerState {
+    Discovered,
+    Connecting,
+    Connected,
+    Disconnected,
+}
+
+pub struct PeerInfo {
+    pub endpoints: Vec<SocketAddr>,
+    pub state: PeerState,
+    pub session_id: Option<SessionId>,
+    pub capabilities: Vec<String>,
+    pub first_seen: DateTime<Utc>,
+    pub last_seen: DateTime<Utc>,
+}
+
+impl PeerInfo {
+    fn new(endpoints: Vec<SocketAddr>) -> Self {
+        let now = Utc::now();
+        Self {
+            endpoints,
+            state: PeerState::Discovered,
+            session_id: None,
+            capabilities: Vec::new(),
+            first_seen: now,
+            last_seen: now,
+        }
+    }
+
+    pub fn first_seen(&self) -> DateTime<Utc> {
+        self.first_seen
+    }
+
+    pub fn last_seen(&self) -> DateTime<Utc> {
+        self.last_seen
+    }
+}
+
+pub struct PeerManager {
+    peers: Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
+}
+
+impl PeerManager {
+    pub fn new() -> Self {
+        Self {
+            peers: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn add_peer(&self, peer_id: PeerId, endpoints: Vec<SocketAddr>) {
+        let mut peers = self.peers.write();
+        peers
+            .entry(peer_id.clone())
+            .and_modify(|info| {
+                info.endpoints = endpoints.clone();
+                info.last_seen = Utc::now();
+            })
+            .or_insert_with(|| PeerInfo::new(endpoints));
+    }
+
+    pub fn update_state(&self, peer_id: &PeerId, state: PeerState) {
+        if let Some(info) = self.peers.write().get_mut(peer_id) {
+            info.state = state;
+            info.last_seen = Utc::now();
+        }
+    }
+
+    pub fn set_session(&self, peer_id: &PeerId, session_id: SessionId) {
+        if let Some(info) = self.peers.write().get_mut(peer_id) {
+            info.session_id = Some(session_id);
+            info.state = PeerState::Connected;
+            info.last_seen = Utc::now();
+        }
+    }
+
+    pub fn get_state(&self, peer_id: &PeerId) -> Option<PeerState> {
+        self.peers.read().get(peer_id).map(|i| i.state.clone())
+    }
+
+    pub fn get_endpoints(&self, peer_id: &PeerId) -> Option<Vec<SocketAddr>> {
+        self.peers.read().get(peer_id).map(|i| i.endpoints.clone())
+    }
+
+    pub fn connected_peers(&self) -> Vec<PeerId> {
+        self.peers
+            .read()
+            .iter()
+            .filter(|(_, info)| info.state == PeerState::Connected)
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    pub fn all_peers(&self) -> Vec<PeerId> {
+        self.peers.read().keys().cloned().collect()
+    }
+
+    pub fn remove_peer(&self, peer_id: &PeerId) {
+        self.peers.write().remove(peer_id);
+    }
+
+    pub fn peer_count(&self) -> usize {
+        self.peers.read().len()
+    }
+
+    pub fn set_capabilities(&self, peer_id: &PeerId, capabilities: Vec<String>) {
+        if let Some(info) = self.peers.write().get_mut(peer_id) {
+            info.capabilities = capabilities;
+        }
+    }
+}
+
+impl Default for PeerManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_and_query_peer() {
+        let mgr = PeerManager::new();
+        let peer = PeerId::new();
+        let addr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+        mgr.add_peer(peer.clone(), vec![addr]);
+
+        assert_eq!(mgr.get_state(&peer), Some(PeerState::Discovered));
+        assert_eq!(mgr.peer_count(), 1);
+
+        let peers = mgr.peers.read();
+        let info = peers.get(&peer).unwrap();
+        assert!(info.first_seen() <= info.last_seen());
+    }
+
+    #[test]
+    fn connected_peers_filter() {
+        let mgr = PeerManager::new();
+        let p1 = PeerId::new();
+        let p2 = PeerId::new();
+        let addr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+
+        mgr.add_peer(p1.clone(), vec![addr]);
+        mgr.add_peer(p2.clone(), vec![addr]);
+        mgr.update_state(&p1, PeerState::Connected);
+
+        let connected = mgr.connected_peers();
+        assert_eq!(connected.len(), 1);
+        assert_eq!(connected[0], p1);
+    }
+}

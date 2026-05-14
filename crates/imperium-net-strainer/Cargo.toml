@@ -1,0 +1,19 @@
+[package]
+name = "imperium-net-strainer"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Strainer primitive and composition runtime for shape-selective filtering"
+
+[dependencies]
+imperium-bus = { path = "../imperium-bus" }
+imperium-protocol = { path = "../imperium-protocol" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+parking_lot = { workspace = true }

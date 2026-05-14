@@ -1,0 +1,27 @@
+[package]
+name = "imperium-cli"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "CLI binary for the Imperium runtime — operator commands and node lifecycle"
+
+[[bin]]
+name = "imperium"
+path = "src/main.rs"
+
+[dependencies]
+imperium-bus = { path = "../imperium-bus" }
+imperium-protocol = { path = "../imperium-protocol" }
+imperium-runtime = { path = "../imperium-runtime" }
+imperium-net-cluster = { path = "../imperium-net-cluster" }
+imperium-net-crypto = { path = "../imperium-net-crypto" }
+imperium-net-signatures = { path = "../imperium-net-signatures" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+rand = { workspace = true }
