@@ -3,8 +3,8 @@ use std::sync::Arc;
 use chrono::Utc;
 use imperium_bus::Bus;
 use imperium_protocol::{
-    ExtractedSignatureActivated, Message, SignatureActivationFailed,
-    SignatureCandidate, SuggestedAction, ThreatAssessment, ThreatSource,
+    ExtractedSignatureActivated, Message, SignatureActivationFailed, SignatureCandidate,
+    SuggestedAction, ThreatAssessment, ThreatSource,
 };
 use imperium_store::Store;
 use parking_lot::RwLock;
@@ -41,7 +41,7 @@ pub struct SignatureEngineSensor {
     bundled_rules: Arc<RwLock<Vec<SignatureRule>>>,
     extracted_rules: Arc<RwLock<Vec<SignatureRule>>>,
     bus: Arc<Bus>,
-    store: Option<Store>,
+    store: Option<Arc<Store>>,
 }
 
 impl SignatureEngineSensor {
@@ -55,18 +55,29 @@ impl SignatureEngineSensor {
     }
 
     pub fn with_store(mut self, store: Store) -> Self {
+        self.store = Some(Arc::new(store));
+        self
+    }
+
+    pub fn with_shared_store(mut self, store: Arc<Store>) -> Self {
         self.store = Some(store);
         self
     }
 
     pub fn load_bundled_rules(&self, rules: Vec<SignatureRule>) {
         *self.bundled_rules.write() = rules;
-        tracing::info!(count = self.bundled_count(), "loaded bundled signature rules");
+        tracing::info!(
+            count = self.bundled_count(),
+            "loaded bundled signature rules"
+        );
     }
 
     pub fn load_extracted_rules(&self, rules: Vec<SignatureRule>) {
         *self.extracted_rules.write() = rules;
-        tracing::info!(count = self.extracted_count(), "loaded extracted signature rules");
+        tracing::info!(
+            count = self.extracted_count(),
+            "loaded extracted signature rules"
+        );
     }
 
     pub fn add_extracted_rule(&self, rule: SignatureRule) {
@@ -104,7 +115,8 @@ impl SignatureEngineSensor {
 
         let rules = compiler.build();
         let mut scanner = yara_x::Scanner::new(&rules);
-        let scan_results = scanner.scan(data)
+        let scan_results = scanner
+            .scan(data)
             .map_err(|e| SignatureEngineError::YaraScan(e.to_string()))?;
 
         let mut matches = Vec::new();
@@ -177,10 +189,7 @@ impl SignatureEngineSensor {
                     candidate_id = %candidate_id,
                     "no store configured — cannot fetch candidate for activation"
                 );
-                self.publish_activation_failed(
-                    candidate_id,
-                    "no store configured".into(),
-                );
+                self.publish_activation_failed(candidate_id, "no store configured".into());
                 return;
             }
         };
@@ -194,10 +203,7 @@ impl SignatureEngineSensor {
                     error = %e,
                     "failed to fetch candidate from store"
                 );
-                self.publish_activation_failed(
-                    candidate_id,
-                    format!("store fetch failed: {}", e),
-                );
+                self.publish_activation_failed(candidate_id, format!("store fetch failed: {}", e));
                 return;
             }
         };
@@ -225,10 +231,7 @@ impl SignatureEngineSensor {
                 error = %e,
                 "YARA rule failed to compile"
             );
-            self.publish_activation_failed(
-                candidate_id,
-                format!("YARA compile error: {}", e),
-            );
+            self.publish_activation_failed(candidate_id, format!("YARA compile error: {}", e));
             return;
         }
         let _rules = compiler.build();
@@ -395,11 +398,11 @@ mod tests {
             confidence: 0.9,
         };
         let key = format!("signature_candidate:{}", candidate_id);
-        store.put(&key, serde_json::to_vec(&candidate).unwrap()).unwrap();
+        store
+            .put(&key, serde_json::to_vec(&candidate).unwrap())
+            .unwrap();
 
-        let engine = Arc::new(
-            SignatureEngineSensor::new(Arc::clone(&bus)).with_store(store),
-        );
+        let engine = Arc::new(SignatureEngineSensor::new(Arc::clone(&bus)).with_store(store));
 
         let mut activation_sub = bus.subscribe("net.signatures.activated");
         let _handle = engine.subscribe_signature_approvals(&bus);
@@ -413,12 +416,14 @@ mod tests {
         bus.publish(
             "net.signatures.approved",
             Message::SignatureApproved(approval.clone()),
-        ).unwrap();
+        )
+        .unwrap();
 
-        let event = tokio::time::timeout(
-            std::time::Duration::from_millis(200),
-            activation_sub.recv(),
-        ).await.unwrap().unwrap();
+        let event =
+            tokio::time::timeout(std::time::Duration::from_millis(200), activation_sub.recv())
+                .await
+                .unwrap()
+                .unwrap();
 
         if let Message::SignatureActivated(activated) = event.message {
             assert_eq!(activated.candidate_id, candidate_id);
@@ -452,11 +457,11 @@ mod tests {
             confidence: 0.5,
         };
         let key = format!("signature_candidate:{}", candidate_id);
-        store.put(&key, serde_json::to_vec(&candidate).unwrap()).unwrap();
+        store
+            .put(&key, serde_json::to_vec(&candidate).unwrap())
+            .unwrap();
 
-        let engine = Arc::new(
-            SignatureEngineSensor::new(Arc::clone(&bus)).with_store(store),
-        );
+        let engine = Arc::new(SignatureEngineSensor::new(Arc::clone(&bus)).with_store(store));
 
         let mut failure_sub = bus.subscribe("net.signatures.activation_failed");
         let _handle = engine.subscribe_signature_approvals(&bus);
@@ -470,12 +475,13 @@ mod tests {
         bus.publish(
             "net.signatures.approved",
             Message::SignatureApproved(approval),
-        ).unwrap();
+        )
+        .unwrap();
 
-        let event = tokio::time::timeout(
-            std::time::Duration::from_millis(200),
-            failure_sub.recv(),
-        ).await.unwrap().unwrap();
+        let event = tokio::time::timeout(std::time::Duration::from_millis(200), failure_sub.recv())
+            .await
+            .unwrap()
+            .unwrap();
 
         if let Message::SignatureActivationFailed(failed) = event.message {
             assert_eq!(failed.candidate_id, candidate_id);
@@ -495,9 +501,7 @@ mod tests {
 
         let bus = Arc::new(Bus::new());
         let store = Store::in_memory();
-        let engine = Arc::new(
-            SignatureEngineSensor::new(Arc::clone(&bus)).with_store(store),
-        );
+        let engine = Arc::new(SignatureEngineSensor::new(Arc::clone(&bus)).with_store(store));
 
         let mut failure_sub = bus.subscribe("net.signatures.activation_failed");
         let _handle = engine.subscribe_signature_approvals(&bus);
@@ -511,12 +515,13 @@ mod tests {
                 approved_at: chrono::Utc::now(),
                 signature: vec![],
             }),
-        ).unwrap();
+        )
+        .unwrap();
 
-        let event = tokio::time::timeout(
-            std::time::Duration::from_millis(200),
-            failure_sub.recv(),
-        ).await.unwrap().unwrap();
+        let event = tokio::time::timeout(std::time::Duration::from_millis(200), failure_sub.recv())
+            .await
+            .unwrap()
+            .unwrap();
 
         if let Message::SignatureActivationFailed(failed) = event.message {
             assert_eq!(failed.candidate_id, candidate_id);

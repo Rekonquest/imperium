@@ -107,10 +107,97 @@ pub struct MeshPeerAnnouncement {
     pub capabilities: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NatTraversalMode {
+    DirectUdp,
+    StunMappedAddress,
+    LimitedCoordinatedProbing,
+    RelayThroughPeer,
+    AggressiveBirthdayProbe,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NatTraversalPolicy {
+    pub allowed_modes: Vec<NatTraversalMode>,
+    pub aggressive_probe_opt_in: bool,
+    pub max_probe_sockets: u16,
+    pub probes_per_socket: u16,
+    pub probe_window_ms: u64,
+    pub relay_fallback_enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NatProbePlan {
+    pub peer_id: PeerId,
+    pub modes: Vec<NatTraversalMode>,
+    pub socket_count: u16,
+    pub probes_per_socket: u16,
+    pub estimated_probe_count: u32,
+    pub relay_fallback_enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RelayFallbackRequest {
+    pub peer_id: PeerId,
+    pub reason: String,
+    pub requested_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RelayFallbackSelected {
+    pub peer_id: PeerId,
+    pub relay_peer: PeerId,
+    pub selected_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum VpnDeploymentRole {
+    Operator,
+    Client,
+    Relay,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VpnDeploymentNodeSpec {
+    pub label: String,
+    pub role: VpnDeploymentRole,
+    pub peer_id: Option<PeerId>,
+    pub endpoint: Option<SocketAddr>,
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VpnDeploymentPlan {
+    pub deployment_id: Uuid,
+    pub cluster_id: Option<ClusterId>,
+    pub nodes: Vec<VpnDeploymentNodeSpec>,
+    pub hardening_preset: String,
+    pub nat_aggressive: bool,
+    pub relay_auto: bool,
+    pub config_blob: Vec<u8>,
+    pub requested_by: String,
+    pub requested_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VpnDeploymentStatus {
+    pub deployment_id: Uuid,
+    pub accepted: bool,
+    pub reason: String,
+    pub planned_nodes: usize,
+    pub approved_nodes: usize,
+    pub config_version: u64,
+    pub established_sessions: usize,
+    pub relay_fallbacks_selected: usize,
+    pub hardening_profiles_accepted: usize,
+    pub updated_at: DateTime<Utc>,
+}
+
 // --- Phase 1: Cluster ---
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BootstrapTokenPayload {
+    pub token_id: Uuid,
     pub cluster_id: ClusterId,
     pub issued_by: PeerId,
     pub issued_at: DateTime<Utc>,
@@ -207,14 +294,26 @@ pub enum ProtocolStatus {
 pub enum ProtocolEventKind {
     Started,
     Stopped,
-    Crashed { reason: String },
-    Fingerprinted { details: String },
-    ThresholdCrossed { metric: String, value: f64, threshold: f64 },
+    Crashed {
+        reason: String,
+    },
+    Fingerprinted {
+        details: String,
+    },
+    ThresholdCrossed {
+        metric: String,
+        value: f64,
+        threshold: f64,
+    },
     HealingStarted,
     HealingSucceeded,
-    HealingFailed { reason: String },
+    HealingFailed {
+        reason: String,
+    },
     SelfTestPassed,
-    SelfTestFailed { reason: String },
+    SelfTestFailed {
+        reason: String,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -236,11 +335,22 @@ pub enum OrchestratorState {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum OrchestratorDecision {
-    PromoteStandby { protocol_name: String },
-    QuarantineActive { protocol_name: String, reason: String },
-    BeginHealing { protocol_name: String },
-    EmergencyShutdown { reason: String },
-    RestoreFromHealing { protocol_name: String },
+    PromoteStandby {
+        protocol_name: String,
+    },
+    QuarantineActive {
+        protocol_name: String,
+        reason: String,
+    },
+    BeginHealing {
+        protocol_name: String,
+    },
+    EmergencyShutdown {
+        reason: String,
+    },
+    RestoreFromHealing {
+        protocol_name: String,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -249,6 +359,199 @@ pub struct EmergencyShutdown {
     pub triggered_at: DateTime<Utc>,
     pub active_protocol: Option<String>,
     pub standby_protocol: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProfileRotationRequest {
+    pub protocol_name: Option<String>,
+    pub reason: String,
+    pub requested_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransportActiveRequest {
+    pub protocol_name: String,
+    pub requested_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PolicyApplyRequest {
+    pub policy_id: String,
+    pub config_blob: Vec<u8>,
+    pub requested_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum MasqueTunnelKind {
+    ConnectUdp,
+    ConnectIp,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MasqueTunnelConfig {
+    pub tunnel_id: String,
+    pub proxy_authority: String,
+    pub target_authority: String,
+    pub kind: MasqueTunnelKind,
+    pub inner_mtu: u16,
+    pub use_quic_datagrams: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum MasqueTunnelState {
+    Configured,
+    Active,
+    Degraded,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MasqueTunnelStatus {
+    pub tunnel_id: String,
+    pub state: MasqueTunnelState,
+    pub reason: Option<String>,
+    pub timestamp: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PathMetrics {
+    pub path_id: String,
+    pub rtt_ms: u64,
+    pub jitter_ms: u64,
+    pub loss_ppm: u32,
+    pub burn_score: f64,
+    pub handshake_success_ppm: u32,
+    pub relay_required: bool,
+    pub observed_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PathSelection {
+    pub selected_path_id: String,
+    pub score: f64,
+    pub reason: String,
+    pub selected_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PaddingDistribution {
+    None,
+    Fixed { bytes: u16 },
+    Bucketed { buckets: Vec<u16> },
+    Envelope { min_bytes: u16, max_bytes: u16 },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TrafficMorphProfile {
+    pub profile_id: String,
+    pub padding: PaddingDistribution,
+    pub max_padding_overhead_ppm: u32,
+    pub jitter_floor_ms: u16,
+    pub jitter_ceiling_ms: u16,
+    pub cover_traffic_ppm: u32,
+    pub packet_batching_window_ms: u16,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RekeyPolicy {
+    pub max_key_age_seconds: u64,
+    pub max_key_bytes: u64,
+    pub threat_triggered: bool,
+    pub stagger_window_ms: u16,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProbeFailureMode {
+    AuthenticatedDrop,
+    ConstantShapeReject,
+    RetryWithPuzzle,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProbeResistancePolicy {
+    pub authenticated_first_packet_required: bool,
+    pub unauthenticated_failure_mode: ProbeFailureMode,
+    pub min_response_delay_ms: u16,
+    pub max_response_delay_ms: u16,
+    pub decoy_response_budget_per_hour: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProbeDeceptionMode {
+    Disabled,
+    SilentDrop,
+    ConstantShapeReject,
+    ShadowEndpoint,
+    Tarpit,
+    PuzzleGate,
+    DecoyTranscript,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProbeDeceptionPolicy {
+    pub enabled: bool,
+    pub mode: ProbeDeceptionMode,
+    pub min_confidence: f64,
+    pub response_budget_per_source_per_hour: u32,
+    pub min_delay_ms: u16,
+    pub max_delay_ms: u16,
+    pub max_transcript_bytes: u32,
+    pub persona_rotation_seconds: u64,
+    pub log_transcripts: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProbeDeceptionDecision {
+    pub source: Option<SocketAddr>,
+    pub mode: ProbeDeceptionMode,
+    pub persona_id: String,
+    pub response_delay_ms: u16,
+    pub transcript_bytes: u32,
+    pub routed_to_real_endpoint: bool,
+    pub reason: String,
+    pub decided_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PathHoppingPolicy {
+    pub enabled: bool,
+    pub min_dwell_seconds: u64,
+    pub max_dwell_seconds: u64,
+    pub burn_score_threshold: f64,
+    pub packet_loss_threshold_ppm: u32,
+    pub jitter_threshold_ms: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FecPolicy {
+    pub enabled: bool,
+    pub data_shards: u8,
+    pub parity_shards: u8,
+    pub loss_threshold_ppm: u32,
+    pub max_overhead_ppm: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProtocolHardeningProfile {
+    pub profile_id: String,
+    pub protocol_name: Option<String>,
+    pub traffic_morph: TrafficMorphProfile,
+    pub rekey: RekeyPolicy,
+    pub probe_resistance: ProbeResistancePolicy,
+    pub probe_deception: ProbeDeceptionPolicy,
+    pub path_hopping: PathHoppingPolicy,
+    pub fec: FecPolicy,
+    pub applied_at: DateTime<Utc>,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProtocolHardeningStatus {
+    pub profile_id: String,
+    pub protocol_name: Option<String>,
+    pub accepted: bool,
+    pub reason: String,
+    pub active_at: DateTime<Utc>,
 }
 
 // --- Phase 3: Strainer ---
@@ -283,13 +586,54 @@ pub enum RoutingDecision {
     Degrade { method: String },
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IdentityCapabilityGrant {
+    pub identity_id: PeerId,
+    pub capabilities: Vec<String>,
+    pub issued_by: PeerId,
+    pub issued_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IdentityAccessDecision {
+    pub identity_id: PeerId,
+    pub capability: String,
+    pub allowed: bool,
+    pub reason: String,
+    pub decided_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum KillSwitchState {
+    Disarmed,
+    Armed,
+    Engaged,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct KillSwitchCommand {
+    pub state: KillSwitchState,
+    pub reason: String,
+    pub issued_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LeakGuardStatus {
+    pub dns_guard_enabled: bool,
+    pub route_guard_enabled: bool,
+    pub kill_switch: KillSwitchState,
+    pub last_violation: Option<String>,
+    pub timestamp: DateTime<Utc>,
+}
+
 // --- Phase 4: Sensors ---
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ThreatSource {
     Classifier { model_name: String },
     SignatureEngine,
-    Watchtower,
     Heuristic { name: String },
 }
 
@@ -317,31 +661,6 @@ pub enum SuggestedAction {
     ActivateStrainer { strainer_name: String },
     TriggerFailover,
     EmergencyShutdown,
-}
-
-// --- Phase 5: Watchtower ---
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WatchtowerObservation {
-    pub pattern_id: String,
-    pub description: String,
-    pub confidence: f64,
-    pub evidence: Vec<String>,
-    pub timestamp: DateTime<Utc>,
-    pub suggested_action: SuggestedAction,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum WatchtowerUnavailableReason {
-    ModelNotLoaded,
-    ModelHashMismatch,
-    Disabled,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WatchtowerUnavailable {
-    pub reason: WatchtowerUnavailableReason,
-    pub timestamp: DateTime<Utc>,
 }
 
 // --- Phase 6: Signatures ---
@@ -463,6 +782,12 @@ pub enum Message {
     MeshPing(MeshPing),
     MeshPong(MeshPong),
     MeshPeerAnnouncement(MeshPeerAnnouncement),
+    NatTraversalPolicy(NatTraversalPolicy),
+    NatProbePlan(NatProbePlan),
+    RelayFallbackRequest(RelayFallbackRequest),
+    RelayFallbackSelected(RelayFallbackSelected),
+    VpnDeploymentPlan(VpnDeploymentPlan),
+    VpnDeploymentStatus(VpnDeploymentStatus),
 
     // Phase 1: Cluster
     BootstrapToken(BootstrapTokenPayload),
@@ -478,19 +803,29 @@ pub enum Message {
     ProtocolEvt(ProtocolEvent),
     OrchestratorDecision(OrchestratorDecision),
     EmergencyShutdown(EmergencyShutdown),
+    ProfileRotationRequest(ProfileRotationRequest),
+    TransportActiveRequest(TransportActiveRequest),
+    PolicyApplyRequest(PolicyApplyRequest),
+    MasqueTunnelConfig(MasqueTunnelConfig),
+    MasqueTunnelStatus(MasqueTunnelStatus),
+    PathMetrics(PathMetrics),
+    PathSelection(PathSelection),
+    ProtocolHardeningProfile(ProtocolHardeningProfile),
+    ProtocolHardeningStatus(ProtocolHardeningStatus),
+    ProbeDeceptionDecision(ProbeDeceptionDecision),
 
     // Phase 3: Strainer
     StrainerRejection(StrainerRejection),
     StrainerStackComposition(StrainerStackComposition),
     RoutingDecision(RoutingDecision),
+    IdentityCapabilityGrant(IdentityCapabilityGrant),
+    IdentityAccessDecision(IdentityAccessDecision),
+    KillSwitchCommand(KillSwitchCommand),
+    LeakGuardStatus(LeakGuardStatus),
 
     // Phase 4: Sensors
     ThreatAssessment(ThreatAssessment),
     SensorFeature(SensorFeature),
-
-    // Phase 5: Watchtower
-    WatchtowerObservation(WatchtowerObservation),
-    WatchtowerUnavailable(WatchtowerUnavailable),
 
     // Phase 6: Signatures
     SignatureCandidate(SignatureCandidate),
@@ -622,12 +957,95 @@ mod tests {
     }
 
     #[test]
+    fn nat_traversal_messages_roundtrip() {
+        let peer = PeerId::new();
+        roundtrip_message(Message::NatTraversalPolicy(NatTraversalPolicy {
+            allowed_modes: vec![
+                NatTraversalMode::DirectUdp,
+                NatTraversalMode::StunMappedAddress,
+                NatTraversalMode::LimitedCoordinatedProbing,
+                NatTraversalMode::RelayThroughPeer,
+            ],
+            aggressive_probe_opt_in: false,
+            max_probe_sockets: 4,
+            probes_per_socket: 8,
+            probe_window_ms: 1_500,
+            relay_fallback_enabled: true,
+        }));
+
+        roundtrip_message(Message::NatProbePlan(NatProbePlan {
+            peer_id: peer.clone(),
+            modes: vec![
+                NatTraversalMode::DirectUdp,
+                NatTraversalMode::RelayThroughPeer,
+            ],
+            socket_count: 4,
+            probes_per_socket: 8,
+            estimated_probe_count: 32,
+            relay_fallback_enabled: true,
+        }));
+
+        roundtrip_message(Message::RelayFallbackRequest(RelayFallbackRequest {
+            peer_id: peer.clone(),
+            reason: "symmetric nat".into(),
+            requested_at: Utc::now(),
+        }));
+
+        roundtrip_message(Message::RelayFallbackSelected(RelayFallbackSelected {
+            peer_id: peer,
+            relay_peer: PeerId::new(),
+            selected_at: Utc::now(),
+        }));
+
+        roundtrip_message(Message::VpnDeploymentPlan(VpnDeploymentPlan {
+            deployment_id: Uuid::new_v4(),
+            cluster_id: Some(ClusterId::new()),
+            nodes: vec![
+                VpnDeploymentNodeSpec {
+                    label: "operator".into(),
+                    role: VpnDeploymentRole::Operator,
+                    peer_id: Some(PeerId::new()),
+                    endpoint: Some("127.0.0.1:31000".parse().unwrap()),
+                    capabilities: vec!["vpn.cluster.admin".into()],
+                },
+                VpnDeploymentNodeSpec {
+                    label: "relay".into(),
+                    role: VpnDeploymentRole::Relay,
+                    peer_id: None,
+                    endpoint: Some("127.0.0.1:31001".parse().unwrap()),
+                    capabilities: vec!["vpn.relay".into()],
+                },
+            ],
+            hardening_preset: "fortress".into(),
+            nat_aggressive: false,
+            relay_auto: true,
+            config_blob: br#"{"deployment":"auto"}"#.to_vec(),
+            requested_by: "test".into(),
+            requested_at: Utc::now(),
+        }));
+
+        roundtrip_message(Message::VpnDeploymentStatus(VpnDeploymentStatus {
+            deployment_id: Uuid::new_v4(),
+            accepted: true,
+            reason: "deployment converged".into(),
+            planned_nodes: 2,
+            approved_nodes: 2,
+            config_version: 1,
+            established_sessions: 2,
+            relay_fallbacks_selected: 1,
+            hardening_profiles_accepted: 2,
+            updated_at: Utc::now(),
+        }));
+    }
+
+    #[test]
     fn cluster_messages_roundtrip() {
         let cluster = ClusterId::new();
         let peer = PeerId::new();
         let now = Utc::now();
 
         roundtrip_message(Message::BootstrapToken(BootstrapTokenPayload {
+            token_id: Uuid::new_v4(),
             cluster_id: cluster.clone(),
             issued_by: peer.clone(),
             issued_at: now,
@@ -678,8 +1096,12 @@ mod tests {
         let kinds = vec![
             ProtocolEventKind::Started,
             ProtocolEventKind::Stopped,
-            ProtocolEventKind::Crashed { reason: "oom".into() },
-            ProtocolEventKind::Fingerprinted { details: "tls mismatch".into() },
+            ProtocolEventKind::Crashed {
+                reason: "oom".into(),
+            },
+            ProtocolEventKind::Fingerprinted {
+                details: "tls mismatch".into(),
+            },
             ProtocolEventKind::ThresholdCrossed {
                 metric: "rtt".into(),
                 value: 150.0,
@@ -687,9 +1109,13 @@ mod tests {
             },
             ProtocolEventKind::HealingStarted,
             ProtocolEventKind::HealingSucceeded,
-            ProtocolEventKind::HealingFailed { reason: "timeout".into() },
+            ProtocolEventKind::HealingFailed {
+                reason: "timeout".into(),
+            },
             ProtocolEventKind::SelfTestPassed,
-            ProtocolEventKind::SelfTestFailed { reason: "port blocked".into() },
+            ProtocolEventKind::SelfTestFailed {
+                reason: "port blocked".into(),
+            },
         ];
 
         for kind in kinds {
@@ -706,14 +1132,22 @@ mod tests {
     #[test]
     fn orchestrator_decision_variants_roundtrip() {
         let decisions = vec![
-            OrchestratorDecision::PromoteStandby { protocol_name: "amneziawg".into() },
+            OrchestratorDecision::PromoteStandby {
+                protocol_name: "amneziawg".into(),
+            },
             OrchestratorDecision::QuarantineActive {
                 protocol_name: "xray".into(),
                 reason: "fingerprinted".into(),
             },
-            OrchestratorDecision::BeginHealing { protocol_name: "xray".into() },
-            OrchestratorDecision::EmergencyShutdown { reason: "double crash".into() },
-            OrchestratorDecision::RestoreFromHealing { protocol_name: "xray".into() },
+            OrchestratorDecision::BeginHealing {
+                protocol_name: "xray".into(),
+            },
+            OrchestratorDecision::EmergencyShutdown {
+                reason: "double crash".into(),
+            },
+            OrchestratorDecision::RestoreFromHealing {
+                protocol_name: "xray".into(),
+            },
         ];
 
         for decision in decisions {
@@ -732,6 +1166,138 @@ mod tests {
     }
 
     #[test]
+    fn transport_extension_messages_roundtrip() {
+        roundtrip_message(Message::ProfileRotationRequest(ProfileRotationRequest {
+            protocol_name: Some("xray".into()),
+            reason: "operator requested".into(),
+            requested_at: Utc::now(),
+        }));
+
+        roundtrip_message(Message::TransportActiveRequest(TransportActiveRequest {
+            protocol_name: "masque".into(),
+            requested_at: Utc::now(),
+        }));
+
+        roundtrip_message(Message::PolicyApplyRequest(PolicyApplyRequest {
+            policy_id: "default-zero-trust".into(),
+            config_blob: vec![1, 2, 3],
+            requested_at: Utc::now(),
+        }));
+
+        roundtrip_message(Message::MasqueTunnelConfig(MasqueTunnelConfig {
+            tunnel_id: "masque-1".into(),
+            proxy_authority: "proxy.example:443".into(),
+            target_authority: "target.example:443".into(),
+            kind: MasqueTunnelKind::ConnectUdp,
+            inner_mtu: 1_280,
+            use_quic_datagrams: true,
+        }));
+
+        roundtrip_message(Message::MasqueTunnelStatus(MasqueTunnelStatus {
+            tunnel_id: "masque-1".into(),
+            state: MasqueTunnelState::Configured,
+            reason: None,
+            timestamp: Utc::now(),
+        }));
+
+        roundtrip_message(Message::PathMetrics(PathMetrics {
+            path_id: "direct-udp".into(),
+            rtt_ms: 20,
+            jitter_ms: 2,
+            loss_ppm: 10,
+            burn_score: 0.0,
+            handshake_success_ppm: 999_000,
+            relay_required: false,
+            observed_at: Utc::now(),
+        }));
+
+        roundtrip_message(Message::PathSelection(PathSelection {
+            selected_path_id: "direct-udp".into(),
+            score: 20.0,
+            reason: "lowest deterministic score".into(),
+            selected_at: Utc::now(),
+        }));
+
+        roundtrip_message(Message::ProtocolHardeningProfile(
+            ProtocolHardeningProfile {
+                profile_id: "balanced-rf-inspired".into(),
+                protocol_name: Some("masque".into()),
+                traffic_morph: TrafficMorphProfile {
+                    profile_id: "balanced-morph".into(),
+                    padding: PaddingDistribution::Bucketed {
+                        buckets: vec![64, 256, 768, 1_200],
+                    },
+                    max_padding_overhead_ppm: 80_000,
+                    jitter_floor_ms: 2,
+                    jitter_ceiling_ms: 20,
+                    cover_traffic_ppm: 5_000,
+                    packet_batching_window_ms: 5,
+                },
+                rekey: RekeyPolicy {
+                    max_key_age_seconds: 600,
+                    max_key_bytes: 1_073_741_824,
+                    threat_triggered: true,
+                    stagger_window_ms: 500,
+                },
+                probe_resistance: ProbeResistancePolicy {
+                    authenticated_first_packet_required: true,
+                    unauthenticated_failure_mode: ProbeFailureMode::ConstantShapeReject,
+                    min_response_delay_ms: 5,
+                    max_response_delay_ms: 25,
+                    decoy_response_budget_per_hour: 0,
+                },
+                probe_deception: ProbeDeceptionPolicy {
+                    enabled: true,
+                    mode: ProbeDeceptionMode::ShadowEndpoint,
+                    min_confidence: 0.6,
+                    response_budget_per_source_per_hour: 20,
+                    min_delay_ms: 10,
+                    max_delay_ms: 80,
+                    max_transcript_bytes: 512,
+                    persona_rotation_seconds: 3_600,
+                    log_transcripts: true,
+                },
+                path_hopping: PathHoppingPolicy {
+                    enabled: true,
+                    min_dwell_seconds: 120,
+                    max_dwell_seconds: 900,
+                    burn_score_threshold: 0.7,
+                    packet_loss_threshold_ppm: 50_000,
+                    jitter_threshold_ms: 80,
+                },
+                fec: FecPolicy {
+                    enabled: true,
+                    data_shards: 8,
+                    parity_shards: 2,
+                    loss_threshold_ppm: 20_000,
+                    max_overhead_ppm: 250_000,
+                },
+                applied_at: Utc::now(),
+                reason: "operator selected balanced hardening".into(),
+            },
+        ));
+
+        roundtrip_message(Message::ProtocolHardeningStatus(ProtocolHardeningStatus {
+            profile_id: "balanced-rf-inspired".into(),
+            protocol_name: Some("masque".into()),
+            accepted: true,
+            reason: "profile accepted".into(),
+            active_at: Utc::now(),
+        }));
+
+        roundtrip_message(Message::ProbeDeceptionDecision(ProbeDeceptionDecision {
+            source: Some("203.0.113.10:443".parse().unwrap()),
+            mode: ProbeDeceptionMode::ShadowEndpoint,
+            persona_id: "shadow-1234".into(),
+            response_delay_ms: 25,
+            transcript_bytes: 256,
+            routed_to_real_endpoint: false,
+            reason: "unauthenticated high-confidence probe".into(),
+            decided_at: Utc::now(),
+        }));
+    }
+
+    #[test]
     fn strainer_messages_roundtrip() {
         roundtrip_message(Message::StrainerRejection(StrainerRejection {
             strainer_id: "auth_shape_outer".into(),
@@ -743,15 +1309,17 @@ mod tests {
 
         let mut params = HashMap::new();
         params.insert("jitter_ms".into(), serde_json::json!(50));
-        roundtrip_message(Message::StrainerStackComposition(StrainerStackComposition {
-            name: "xray_probe".into(),
-            protocol_context: "xray".into(),
-            stages: vec![StrainerStageConfig {
-                strainer_name: "timing".into(),
-                parameters: params,
-                order: 0,
-            }],
-        }));
+        roundtrip_message(Message::StrainerStackComposition(
+            StrainerStackComposition {
+                name: "xray_probe".into(),
+                protocol_context: "xray".into(),
+                stages: vec![StrainerStageConfig {
+                    strainer_name: "timing".into(),
+                    parameters: params,
+                    order: 0,
+                }],
+            },
+        ));
 
         roundtrip_message(Message::RoutingDecision(RoutingDecision::Deny {
             reason: "suspect source".into(),
@@ -759,9 +1327,46 @@ mod tests {
     }
 
     #[test]
+    fn access_and_leak_guard_messages_roundtrip() {
+        let identity = PeerId::new();
+        roundtrip_message(Message::IdentityCapabilityGrant(IdentityCapabilityGrant {
+            identity_id: identity.clone(),
+            capabilities: vec!["vpn.health".into()],
+            issued_by: PeerId::new(),
+            issued_at: Utc::now(),
+            expires_at: None,
+            signature: vec![1, 2, 3],
+        }));
+
+        roundtrip_message(Message::IdentityAccessDecision(IdentityAccessDecision {
+            identity_id: identity,
+            capability: "vpn.health".into(),
+            allowed: true,
+            reason: "capability granted".into(),
+            decided_at: Utc::now(),
+        }));
+
+        roundtrip_message(Message::KillSwitchCommand(KillSwitchCommand {
+            state: KillSwitchState::Engaged,
+            reason: "dns leak".into(),
+            issued_at: Utc::now(),
+        }));
+
+        roundtrip_message(Message::LeakGuardStatus(LeakGuardStatus {
+            dns_guard_enabled: true,
+            route_guard_enabled: true,
+            kill_switch: KillSwitchState::Armed,
+            last_violation: None,
+            timestamp: Utc::now(),
+        }));
+    }
+
+    #[test]
     fn sensor_messages_roundtrip() {
         roundtrip_message(Message::ThreatAssessment(ThreatAssessment {
-            source: ThreatSource::Classifier { model_name: "threat_v1".into() },
+            source: ThreatSource::Classifier {
+                model_name: "threat_v1".into(),
+            },
             confidence: 0.87,
             description: "suspicious timing".into(),
             remote_addr: Some("10.0.0.5:443".parse().unwrap()),
@@ -778,23 +1383,6 @@ mod tests {
             remote_addr: None,
             timestamp: Utc::now(),
             suggested_action: SuggestedAction::TriggerFailover,
-        }));
-    }
-
-    #[test]
-    fn watchtower_messages_roundtrip() {
-        roundtrip_message(Message::WatchtowerObservation(WatchtowerObservation {
-            pattern_id: "coord_attack_01".into(),
-            description: "coordinated probing".into(),
-            confidence: 0.72,
-            evidence: vec!["evt_001".into(), "evt_002".into()],
-            timestamp: Utc::now(),
-            suggested_action: SuggestedAction::IncreaseMonitoring,
-        }));
-
-        roundtrip_message(Message::WatchtowerUnavailable(WatchtowerUnavailable {
-            reason: WatchtowerUnavailableReason::ModelHashMismatch,
-            timestamp: Utc::now(),
         }));
     }
 
@@ -832,11 +1420,13 @@ mod tests {
             activated_at: now,
         }));
 
-        roundtrip_message(Message::SignatureActivationFailed(SignatureActivationFailed {
-            candidate_id: id,
-            compile_error: "invalid YARA syntax".into(),
-            failed_at: now,
-        }));
+        roundtrip_message(Message::SignatureActivationFailed(
+            SignatureActivationFailed {
+                candidate_id: id,
+                compile_error: "invalid YARA syntax".into(),
+                failed_at: now,
+            },
+        ));
 
         roundtrip_message(Message::ExtractionRequest(ExtractionRequest {
             triggering_event_ids: vec![EventId::new(), EventId::new()],
@@ -844,11 +1434,13 @@ mod tests {
             requested_by: "operator".into(),
         }));
 
-        roundtrip_message(Message::SignatureCandidatePending(SignatureCandidatePending {
-            candidate_id: id,
-            requested_by: "operator".into(),
-            ready_at: now,
-        }));
+        roundtrip_message(Message::SignatureCandidatePending(
+            SignatureCandidatePending {
+                candidate_id: id,
+                requested_by: "operator".into(),
+                ready_at: now,
+            },
+        ));
 
         roundtrip_message(Message::ExtractionFailed(ExtractionFailed {
             triggering_event_ids: vec![EventId::new()],
@@ -892,7 +1484,9 @@ mod tests {
 
     #[test]
     fn infrastructure_messages_roundtrip() {
-        roundtrip_message(Message::SubsystemReady { name: "sensors".into() });
+        roundtrip_message(Message::SubsystemReady {
+            name: "sensors".into(),
+        });
         roundtrip_message(Message::SubsystemStopping {
             name: "transport".into(),
             reason: "shutdown".into(),
@@ -901,7 +1495,9 @@ mod tests {
 
     #[test]
     fn bus_event_has_unique_id_and_timestamp() {
-        let msg = Message::SubsystemReady { name: "test".into() };
+        let msg = Message::SubsystemReady {
+            name: "test".into(),
+        };
         let e1 = BusEvent::new("test.topic", msg.clone());
         let e2 = BusEvent::new("test.topic", msg);
 
@@ -911,9 +1507,12 @@ mod tests {
 
     #[test]
     fn bus_event_topic_stored_correctly() {
-        let event = BusEvent::new("net.cluster.join", Message::SubsystemReady {
-            name: "cluster".into(),
-        });
+        let event = BusEvent::new(
+            "net.cluster.join",
+            Message::SubsystemReady {
+                name: "cluster".into(),
+            },
+        );
         assert_eq!(&*event.topic, "net.cluster.join");
     }
 
@@ -922,7 +1521,9 @@ mod tests {
         let actions = vec![
             SuggestedAction::None,
             SuggestedAction::IncreaseMonitoring,
-            SuggestedAction::ActivateStrainer { strainer_name: "timing".into() },
+            SuggestedAction::ActivateStrainer {
+                strainer_name: "timing".into(),
+            },
             SuggestedAction::TriggerFailover,
             SuggestedAction::EmergencyShutdown,
         ];
@@ -934,10 +1535,13 @@ mod tests {
     #[test]
     fn threat_source_enum_coverage() {
         let sources = vec![
-            ThreatSource::Classifier { model_name: "v1".into() },
+            ThreatSource::Classifier {
+                model_name: "v1".into(),
+            },
             ThreatSource::SignatureEngine,
-            ThreatSource::Watchtower,
-            ThreatSource::Heuristic { name: "timing".into() },
+            ThreatSource::Heuristic {
+                name: "timing".into(),
+            },
         ];
         for source in sources {
             roundtrip(&source);
@@ -948,8 +1552,12 @@ mod tests {
     fn routing_decision_enum_coverage() {
         let decisions = vec![
             RoutingDecision::Allow,
-            RoutingDecision::Deny { reason: "blocked".into() },
-            RoutingDecision::Degrade { method: "truncate".into() },
+            RoutingDecision::Deny {
+                reason: "blocked".into(),
+            },
+            RoutingDecision::Degrade {
+                method: "truncate".into(),
+            },
         ];
         for decision in decisions {
             roundtrip(&decision);

@@ -3,9 +3,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use imperium_bus::Bus;
-use imperium_protocol::{
-    Message, SensorFeature, SuggestedAction, ThreatAssessment, ThreatSource,
-};
+use imperium_protocol::{Message, SensorFeature, SuggestedAction, ThreatAssessment, ThreatSource};
 use parking_lot::RwLock;
 use thiserror::Error;
 
@@ -61,9 +59,14 @@ impl ClassifierSensor {
         Ok(())
     }
 
-    pub fn classify(&self, features: &[SensorFeature]) -> Result<Option<ThreatAssessment>, ClassifierError> {
+    pub fn classify(
+        &self,
+        features: &[SensorFeature],
+    ) -> Result<Option<ThreatAssessment>, ClassifierError> {
         if self.state() != ClassifierState::Ready {
-            return Err(ClassifierError::ModelNotLoaded(self.config.model_name.clone()));
+            return Err(ClassifierError::ModelNotLoaded(
+                self.config.model_name.clone(),
+            ));
         }
 
         let confidence = self.run_inference(features);

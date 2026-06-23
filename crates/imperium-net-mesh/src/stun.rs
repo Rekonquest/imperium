@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
-use tokio::net::UdpSocket;
 use thiserror::Error;
+use tokio::net::UdpSocket;
 
 #[derive(Debug, Error)]
 pub enum StunError {
@@ -54,10 +54,7 @@ fn build_binding_request(transaction_id: &[u8; 12]) -> Vec<u8> {
     pkt
 }
 
-fn parse_binding_response(
-    data: &[u8],
-    expected_tid: &[u8; 12],
-) -> Result<SocketAddr, StunError> {
+fn parse_binding_response(data: &[u8], expected_tid: &[u8; 12]) -> Result<SocketAddr, StunError> {
     if data.len() < 20 {
         return Err(StunError::InvalidResponse);
     }

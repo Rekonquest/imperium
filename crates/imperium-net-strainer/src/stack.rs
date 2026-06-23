@@ -67,7 +67,12 @@ impl StrainerStack {
         StrainerOutput::Passed(current_data)
     }
 
-    fn emit_rejection(&self, strainer_id: &str, reason: &str, source: Option<std::net::SocketAddr>) {
+    fn emit_rejection(
+        &self,
+        strainer_id: &str,
+        reason: &str,
+        source: Option<std::net::SocketAddr>,
+    ) {
         if let Some(ref bus) = self.bus {
             let rejection = StrainerRejection {
                 strainer_id: strainer_id.to_string(),
@@ -109,7 +114,9 @@ impl StrainerRegistry {
     }
 
     pub fn register(&self, strainer: Arc<dyn Strainer>) {
-        self.strainers.write().insert(strainer.id().to_string(), strainer);
+        self.strainers
+            .write()
+            .insert(strainer.id().to_string(), strainer);
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<dyn Strainer>> {

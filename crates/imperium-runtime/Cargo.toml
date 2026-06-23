@@ -11,10 +11,16 @@ imperium-bus = { path = "../imperium-bus" }
 imperium-protocol = { path = "../imperium-protocol" }
 imperium-secrets-vault = { path = "../imperium-secrets-vault" }
 imperium-store = { path = "../imperium-store" }
+imperium-net-cluster = { path = "../imperium-net-cluster" }
+imperium-net-crypto = { path = "../imperium-net-crypto" }
+imperium-net-mesh = { path = "../imperium-net-mesh" }
+imperium-net-transport = { path = "../imperium-net-transport" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
 
 [dev-dependencies]
 chrono = { workspace = true }
@@ -22,6 +28,8 @@ uuid = { workspace = true }
 rand = { workspace = true }
 serde_json = { workspace = true }
 imperium-net-transport = { path = "../imperium-net-transport" }
+imperium-net-toolkit = { path = "../imperium-net-toolkit" }
+imperium-net-mesh = { path = "../imperium-net-mesh" }
 imperium-net-cluster = { path = "../imperium-net-cluster" }
 imperium-net-crypto = { path = "../imperium-net-crypto" }
 imperium-net-strainer = { path = "../imperium-net-strainer" }

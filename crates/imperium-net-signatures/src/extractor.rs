@@ -109,7 +109,12 @@ impl ExtractionLoop {
         memory_log: Arc<MemoryLog>,
         staging: Arc<StagingArea>,
     ) -> Self {
-        Self { bus, store, memory_log, staging }
+        Self {
+            bus,
+            store,
+            memory_log,
+            staging,
+        }
     }
 
     pub fn subscribe_extraction_requests(
@@ -186,29 +191,29 @@ impl ExtractionLoop {
         }
 
         let description = format!("{} (from {} events)", reason, found_ids.len());
-        let candidate = match SignatureExtractor::extract_candidate(
-            &event_data,
-            &found_ids,
-            &description,
-        ) {
-            Some(c) => c,
-            None => {
-                tracing::warn!("extraction produced no candidate from event data");
-                let _ = self.bus.publish(
-                    "net.signatures.extraction_failed",
-                    Message::ExtractionFailed(ExtractionFailed {
-                        triggering_event_ids: triggering_event_ids.to_vec(),
-                        reason: "extraction produced no candidate pattern".into(),
-                        failed_at: Utc::now(),
-                    }),
-                );
-                return;
-            }
-        };
+        let candidate =
+            match SignatureExtractor::extract_candidate(&event_data, &found_ids, &description) {
+                Some(c) => c,
+                None => {
+                    tracing::warn!("extraction produced no candidate from event data");
+                    let _ = self.bus.publish(
+                        "net.signatures.extraction_failed",
+                        Message::ExtractionFailed(ExtractionFailed {
+                            triggering_event_ids: triggering_event_ids.to_vec(),
+                            reason: "extraction produced no candidate pattern".into(),
+                            failed_at: Utc::now(),
+                        }),
+                    );
+                    return;
+                }
+            };
 
         let candidate_id = candidate.id;
         let key = format!("signature_candidate:{}", candidate_id);
-        if let Err(e) = self.store.put(&key, serde_json::to_vec(&candidate).unwrap()) {
+        if let Err(e) = self
+            .store
+            .put(&key, serde_json::to_vec(&candidate).unwrap())
+        {
             tracing::error!(error = %e, "failed to persist candidate to store");
             let _ = self.bus.publish(
                 "net.signatures.extraction_failed",
@@ -285,7 +290,9 @@ mod tests {
         let candidate = SignatureExtractor::extract_candidate(&data, &event_ids, "test").unwrap();
 
         let mut compiler = yara_x::Compiler::new();
-        compiler.add_source(candidate.rule_text.as_str()).expect("YARA rule should compile");
+        compiler
+            .add_source(candidate.rule_text.as_str())
+            .expect("YARA rule should compile");
         let _rules = compiler.build();
     }
 
@@ -328,19 +335,24 @@ mod tests {
                 reason: "suspicious pattern".into(),
                 requested_by: "operator".into(),
             }),
-        ).unwrap();
+        )
+        .unwrap();
 
-        let result = tokio::time::timeout(
-            std::time::Duration::from_millis(200),
-            pending_sub.recv(),
-        ).await.unwrap().unwrap();
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis(200), pending_sub.recv())
+                .await
+                .unwrap()
+                .unwrap();
 
         if let Message::SignatureCandidatePending(ref pending) = result.message {
             assert!(store.exists(&format!("signature_candidate:{}", pending.candidate_id)));
             assert_eq!(pending.requested_by, "operator");
             assert_eq!(staging.pending_count(), 1);
         } else {
-            panic!("expected SignatureCandidatePending, got {:?}", result.message);
+            panic!(
+                "expected SignatureCandidatePending, got {:?}",
+                result.message
+            );
         }
     }
 
@@ -370,12 +382,14 @@ mod tests {
                 reason: "nonexistent events".into(),
                 requested_by: "operator".into(),
             }),
-        ).unwrap();
+        )
+        .unwrap();
 
-        let result = tokio::time::timeout(
-            std::time::Duration::from_millis(200),
-            failure_sub.recv(),
-        ).await.unwrap().unwrap();
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis(200), failure_sub.recv())
+                .await
+                .unwrap()
+                .unwrap();
 
         if let Message::ExtractionFailed(ref failed) = result.message {
             assert!(failed.reason.contains("no triggering events"));

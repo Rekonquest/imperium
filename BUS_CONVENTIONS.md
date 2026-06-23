@@ -15,7 +15,6 @@ net.sensors.*            Classifier, signature engine
 net.signatures.*         Signature staging, approval, activation, extraction
 net.strainer.*           Strainer stack rejections
 net.cluster.*            Cluster membership, config, gossip
-net.watchtower.*         Watchtower observations
 net.mesh.*               Mesh transport (ping/pong)
 net.toolkit.*            Toolkit activation, state
 ```
@@ -76,9 +75,6 @@ Generated 2026-05-13 (Round 5 update). Covers every `bus.publish()` and `bus.sub
 | 28 | imperium-net-cluster | config.rs | `net.cluster.config.updated` | ConfigVersion | `net.cluster.` (cluster init) ✓ |
 | 29 | imperium-net-cluster | config.rs | `net.cluster.config.fetch_request` | ConfigFetchReq | `net.cluster.` (cluster init) ✓ |
 | 30 | imperium-net-cluster | config.rs | `net.cluster.config.fetch_response` | ConfigFetchResp | `net.cluster.config.fetch_response` (config), `net.cluster.` (init) ✓ |
-| 31 | imperium-net-watchtower | lib.rs | `net.watchtower.ready` | SubsystemReady | `net.watchtower.` (watchtower init, orchestrator) ✓ |
-| 32 | imperium-net-watchtower | observer.rs | `net.watchtower.observation` | WatchtowerObservation | `net.watchtower.` (orchestrator, watchtower init) ✓ |
-| 33 | imperium-net-watchtower | observer.rs | `net.watchtower.unavailable` | WatchtowerUnavailable | `net.watchtower.` (watchtower init) ✓ |
 | 34 | imperium-net-mesh | lib.rs | `net.mesh.ready` | SubsystemReady | `net.mesh.` (mesh init) ✓ |
 | 35 | imperium-net-mesh | transport.rs | `net.mesh.ping.sent` | MeshPing | `net.mesh.` (mesh init) ✓ |
 | 36 | imperium-net-mesh | transport.rs | `net.mesh.pong.sent` | MeshPong | `net.mesh.` (mesh init) ✓ |
@@ -94,7 +90,6 @@ Generated 2026-05-13 (Round 5 update). Covers every `bus.publish()` and `bus.sub
 | 3 | imperium-net-transport | lib.rs | `net.transport.` | all `net.transport.*` |
 | 4 | imperium-net-transport | orchestrator.rs | `net.transport.event` | `net.transport.event`, `net.transport.event.*` |
 | 5 | imperium-net-transport | orchestrator.rs | `net.sensors.` | all `net.sensors.*` |
-| 6 | imperium-net-transport | orchestrator.rs | `net.watchtower.` | all `net.watchtower.*` |
 | 7 | imperium-net-sensors | lib.rs | `net.sensors.` | all `net.sensors.*` |
 | 8 | imperium-net-sensors | signature_engine.rs | `net.signatures.approved` | `net.signatures.approved` |
 | 9 | imperium-net-signatures | lib.rs | `net.signatures.` | all `net.signatures.*` |
@@ -103,7 +98,6 @@ Generated 2026-05-13 (Round 5 update). Covers every `bus.publish()` and `bus.sub
 | 12 | imperium-net-cluster | lib.rs | `net.cluster.` | all `net.cluster.*` |
 | 13 | imperium-net-cluster | config.rs | `net.cluster.config.fetch_response` | exact match |
 | 14 | imperium-net-cluster | membership.rs | `net.cluster.membership.granted` | `net.cluster.membership.granted` |
-| 15 | imperium-net-watchtower | lib.rs | `net.watchtower.` | all `net.watchtower.*` |
 | 16 | imperium-net-mesh | lib.rs | `net.mesh.` | all `net.mesh.*` |
 | 17 | imperium-memory-log | lib.rs | `net.strainer.rejection` | `net.strainer.rejection` |
 | 18 | imperium-memory-log | lib.rs | `net.transport.` | all `net.transport.*` |

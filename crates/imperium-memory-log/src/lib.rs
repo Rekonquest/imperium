@@ -95,10 +95,7 @@ impl MemoryLog {
         })
     }
 
-    pub fn subscribe_protocol_events(
-        self: &Arc<Self>,
-        bus: &Bus,
-    ) -> tokio::task::JoinHandle<()> {
+    pub fn subscribe_protocol_events(self: &Arc<Self>, bus: &Bus) -> tokio::task::JoinHandle<()> {
         let mut sub = bus.subscribe("net.transport.");
         let log = Arc::clone(self);
         tokio::spawn(async move {
@@ -305,7 +302,11 @@ mod tests {
             h.join().unwrap();
         }
 
-        assert_eq!(log.len(), 50, "capacity must be respected under concurrency");
+        assert_eq!(
+            log.len(),
+            50,
+            "capacity must be respected under concurrency"
+        );
     }
 
     #[test]
@@ -343,12 +344,16 @@ mod tests {
                 source_identifier: None,
                 timestamp: Utc::now(),
             }),
-        ).unwrap();
+        )
+        .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(log.len(), 1);
         let entries = log.entries_since(0);
-        assert!(matches!(entries[0].event.message, Message::StrainerRejection(_)));
+        assert!(matches!(
+            entries[0].event.message,
+            Message::StrainerRejection(_)
+        ));
     }
 
     #[tokio::test]
@@ -369,7 +374,8 @@ mod tests {
                 event: ProtocolEventKind::Started,
                 timestamp: Utc::now(),
             }),
-        ).unwrap();
+        )
+        .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(log.len(), 1);

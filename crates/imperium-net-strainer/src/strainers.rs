@@ -111,7 +111,9 @@ pub struct AuthShapeOuterStrainer {
 
 impl AuthShapeOuterStrainer {
     pub fn new(expected_byte_count: usize) -> Self {
-        Self { expected_byte_count }
+        Self {
+            expected_byte_count,
+        }
     }
 }
 

@@ -8,6 +8,16 @@ use imperium_protocol::{Message, ToolActivationRequest, ToolBudget, ToolState, T
 use parking_lot::RwLock;
 use thiserror::Error;
 
+pub async fn init(bus: Arc<Bus>) -> Result<(), imperium_bus::BusError> {
+    bus.publish(
+        "net.toolkit.ready",
+        Message::SubsystemReady {
+            name: "imperium-net-toolkit".to_string(),
+        },
+    )?;
+    Ok(())
+}
+
 #[derive(Debug, Error)]
 pub enum ToolkitError {
     #[error("tool not found: {0}")]
@@ -101,9 +111,7 @@ impl ToolManager {
 
     pub fn register(&self, manifest: ToolManifest) {
         let name = manifest.name.clone();
-        self.tools
-            .write()
-            .insert(name, ManagedTool::new(manifest));
+        self.tools.write().insert(name, ManagedTool::new(manifest));
     }
 
     pub fn arm(&self, tool_name: &str) -> Result<(), ToolkitError> {
@@ -190,7 +198,12 @@ impl ToolManager {
 
         drop(tools);
 
-        self.emit_state_change(tool_name, from, ToolState::Cooldown, "deactivated, entering cooldown");
+        self.emit_state_change(
+            tool_name,
+            from,
+            ToolState::Cooldown,
+            "deactivated, entering cooldown",
+        );
         Ok(())
     }
 
@@ -264,11 +277,7 @@ impl ToolManager {
             .collect()
     }
 
-    pub fn check_trigger(
-        &self,
-        event_topic: &str,
-        confidence: f64,
-    ) -> Vec<String> {
+    pub fn check_trigger(&self, event_topic: &str, confidence: f64) -> Vec<String> {
         self.tools
             .read()
             .iter()
@@ -280,6 +289,34 @@ impl ToolManager {
             .collect()
     }
 
+    pub fn subscribe_activation_requests(
+        self: &Arc<Self>,
+        bus: &Arc<Bus>,
+    ) -> tokio::task::JoinHandle<()> {
+        let mut sub = bus.subscribe("net.toolkit.request");
+        let mgr = Arc::clone(self);
+        tokio::spawn(async move {
+            loop {
+                match sub.recv().await {
+                    Ok(event) => {
+                        if let Message::ToolActivationReq(ref request) = event.message {
+                            if let Err(e) = mgr.activate(request) {
+                                tracing::warn!(
+                                    tool_name = %request.tool_name,
+                                    trigger = %request.trigger,
+                                    error = %e,
+                                    "tool activation request rejected"
+                                );
+                            }
+                        }
+                    }
+                    Err(imperium_bus::BusError::Closed) => break,
+                    Err(_) => continue,
+                }
+            }
+        })
+    }
+
     fn emit_state_change(&self, tool_name: &str, from: ToolState, to: ToolState, reason: &str) {
         let change = ToolStateChange {
             tool_name: tool_name.to_string(),
@@ -288,10 +325,9 @@ impl ToolManager {
             reason: reason.to_string(),
             timestamp: Utc::now(),
         };
-        let _ = self.bus.publish(
-            "net.toolkit.state",
-            Message::ToolStateChange(change),
-        );
+        let _ = self
+            .bus
+            .publish("net.toolkit.state", Message::ToolStateChange(change));
     }
 }
 
@@ -411,5 +447,30 @@ mod tests {
         mgr.arm("probe").unwrap();
         mgr.disarm("probe").unwrap();
         assert_eq!(mgr.get_state("probe"), Some(ToolState::Dormant));
+    }
+
+    #[tokio::test]
+    async fn activation_requests_are_budget_gated() {
+        let bus = Arc::new(Bus::new());
+        let mgr = Arc::new(ToolManager::new(Arc::clone(&bus)));
+        mgr.register(test_manifest("probe"));
+        mgr.arm("probe").unwrap();
+
+        let mut activation_sub = bus.subscribe("net.toolkit.activation");
+        let _handle = mgr.subscribe_activation_requests(&bus);
+
+        bus.publish(
+            "net.toolkit.request",
+            Message::ToolActivationReq(test_activation("probe")),
+        )
+        .unwrap();
+
+        let event = tokio::time::timeout(Duration::from_millis(100), activation_sub.recv())
+            .await
+            .expect("activation event")
+            .unwrap();
+
+        assert!(matches!(event.message, Message::ToolActivationReq(_)));
+        assert_eq!(mgr.get_state("probe"), Some(ToolState::Active));
     }
 }

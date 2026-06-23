@@ -1,10 +1,10 @@
 mod stack;
 mod strainers;
 
-pub use stack::{StrainerStack, StrainerRegistry};
+pub use stack::{StrainerRegistry, StrainerStack};
 pub use strainers::{
-    AuthShapeInnerStrainer, AuthShapeOuterStrainer, ByteJitterStrainer,
-    TimingStrainer, TruncationStrainer,
+    AuthShapeInnerStrainer, AuthShapeOuterStrainer, ByteJitterStrainer, TimingStrainer,
+    TruncationStrainer,
 };
 
 use std::collections::HashMap;

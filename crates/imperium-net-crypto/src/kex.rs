@@ -60,7 +60,9 @@ impl HybridEncapsulation {
 pub struct HybridX25519Mlkem;
 
 impl HybridX25519Mlkem {
-    pub fn generate_keypair(rng: &mut impl CryptoRngCore) -> (HybridKexSecretKey, HybridKexPublicKey) {
+    pub fn generate_keypair(
+        rng: &mut impl CryptoRngCore,
+    ) -> (HybridKexSecretKey, HybridKexPublicKey) {
         let x25519_secret = EphemeralSecret::random_from_rng(&mut *rng);
         let x25519_public = X25519Public::from(&x25519_secret);
         let (mlkem_dk, mlkem_ek) = MlKem768::generate(rng);
@@ -102,7 +104,9 @@ impl HybridX25519Mlkem {
         secret: HybridKexSecretKey,
         encapsulation: &HybridEncapsulation,
     ) -> Result<HybridSessionKey, HybridKexError> {
-        let x25519_shared = secret.x25519_secret.diffie_hellman(&encapsulation.x25519_public);
+        let x25519_shared = secret
+            .x25519_secret
+            .diffie_hellman(&encapsulation.x25519_public);
 
         let mlkem_ss = secret
             .mlkem_dk

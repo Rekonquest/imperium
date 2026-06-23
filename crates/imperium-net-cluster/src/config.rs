@@ -157,10 +157,7 @@ impl ConfigManager {
         Ok(())
     }
 
-    pub fn subscribe_config_responses(
-        self: &Arc<Self>,
-        bus: &Bus,
-    ) -> tokio::task::JoinHandle<()> {
+    pub fn subscribe_config_responses(self: &Arc<Self>, bus: &Bus) -> tokio::task::JoinHandle<()> {
         let mut sub = bus.subscribe("net.cluster.config.fetch_response");
         let mgr = Arc::clone(self);
         tokio::spawn(async move {
@@ -170,7 +167,10 @@ impl ConfigManager {
                         if let Message::ConfigFetchResp(ref resp) = event.message {
                             match mgr.apply_fetched_config(resp) {
                                 Ok(()) => {
-                                    tracing::info!(version = resp.version, "applied fetched config");
+                                    tracing::info!(
+                                        version = resp.version,
+                                        "applied fetched config"
+                                    );
                                 }
                                 Err(e) => {
                                     tracing::debug!(error = %e, "config fetch response rejected");
@@ -185,7 +185,10 @@ impl ConfigManager {
         })
     }
 
-    pub fn apply_fetched_config(&self, resp: &ConfigurationFetchResponse) -> Result<(), ConfigError> {
+    pub fn apply_fetched_config(
+        &self,
+        resp: &ConfigurationFetchResponse,
+    ) -> Result<(), ConfigError> {
         if resp.version <= self.current_version() {
             return Err(ConfigError::StaleVersion(resp.version));
         }
@@ -262,7 +265,8 @@ mod tests {
         bus.publish(
             "net.cluster.config.fetch_response",
             Message::ConfigFetchResp(resp),
-        ).unwrap();
+        )
+        .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(mgr.current_version(), 1);

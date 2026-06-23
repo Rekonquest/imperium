@@ -130,14 +130,18 @@ mod tests {
         let bus = Bus::new();
         let mut sub = bus.subscribe_all();
 
-        bus.publish("test.hello", Message::SubsystemReady {
-            name: "test".into(),
-        }).unwrap();
+        bus.publish(
+            "test.hello",
+            Message::SubsystemReady {
+                name: "test".into(),
+            },
+        )
+        .unwrap();
 
-        let event = tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            sub.recv(),
-        ).await.unwrap().unwrap();
+        let event = tokio::time::timeout(std::time::Duration::from_millis(100), sub.recv())
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(&*event.topic, "test.hello");
     }
@@ -147,18 +151,21 @@ mod tests {
         let bus = Bus::new();
         let mut sub = bus.subscribe("net.");
 
-        bus.publish("ui.update", Message::SubsystemReady {
-            name: "ui".into(),
-        }).unwrap();
+        bus.publish("ui.update", Message::SubsystemReady { name: "ui".into() })
+            .unwrap();
 
-        bus.publish("net.cluster.ready", Message::SubsystemReady {
-            name: "cluster".into(),
-        }).unwrap();
+        bus.publish(
+            "net.cluster.ready",
+            Message::SubsystemReady {
+                name: "cluster".into(),
+            },
+        )
+        .unwrap();
 
-        let event = tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            sub.recv(),
-        ).await.unwrap().unwrap();
+        let event = tokio::time::timeout(std::time::Duration::from_millis(100), sub.recv())
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(&*event.topic, "net.cluster.ready");
     }

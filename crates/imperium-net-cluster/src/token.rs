@@ -2,10 +2,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use imperium_net_crypto::{HybridEd25519Mldsa, HybridSignError, HybridSigningKey, HybridVerifyingKey};
+use imperium_net_crypto::{
+    HybridEd25519Mldsa, HybridSignError, HybridSigningKey, HybridVerifyingKey,
+};
 use imperium_protocol::{BootstrapTokenPayload, ClusterId, PeerId};
 use parking_lot::RwLock;
 use thiserror::Error;
+use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum TokenError {
@@ -40,8 +43,10 @@ impl TokenManager {
     ) -> BootstrapTokenPayload {
         let now = Utc::now();
         let expires_at = now + expires_in;
+        let token_id = Uuid::new_v4();
 
         let mut payload_bytes = Vec::new();
+        payload_bytes.extend_from_slice(token_id.as_bytes());
         payload_bytes.extend_from_slice(self.cluster_id.0.as_bytes());
         payload_bytes.extend_from_slice(operator_peer_id.0.as_bytes());
         payload_bytes.extend_from_slice(&now.timestamp().to_le_bytes());
@@ -51,6 +56,7 @@ impl TokenManager {
         let signature_bytes = sig.to_bytes();
 
         BootstrapTokenPayload {
+            token_id,
             cluster_id: self.cluster_id.clone(),
             issued_by: operator_peer_id.clone(),
             issued_at: now,
@@ -77,6 +83,7 @@ impl TokenManager {
         }
 
         let mut payload_bytes = Vec::new();
+        payload_bytes.extend_from_slice(token.token_id.as_bytes());
         payload_bytes.extend_from_slice(token.cluster_id.0.as_bytes());
         payload_bytes.extend_from_slice(token.issued_by.0.as_bytes());
         payload_bytes.extend_from_slice(&token.issued_at.timestamp().to_le_bytes());
@@ -94,9 +101,7 @@ impl TokenManager {
     }
 
     pub fn consume_token(&self, token: &BootstrapTokenPayload) {
-        self.consumed_tokens
-            .write()
-            .insert(token.signature.clone());
+        self.consumed_tokens.write().insert(token.signature.clone());
     }
 
     pub fn is_consumed(&self, token: &BootstrapTokenPayload) -> bool {
@@ -136,6 +141,31 @@ mod tests {
             mgr.verify_token(&token, &vk),
             Err(TokenError::AlreadyConsumed)
         ));
+    }
+
+    #[test]
+    fn rapid_tokens_are_independently_consumable() {
+        let cluster_id = ClusterId::new();
+        let mgr = TokenManager::new(cluster_id);
+        let operator_id = PeerId::new();
+        let mut rng = OsRng;
+        let (sk, vk) = HybridEd25519Mldsa::generate_keypair(&mut rng);
+
+        let first = mgr.mint_token(&operator_id, &sk, Duration::hours(1));
+        let second = mgr.mint_token(&operator_id, &sk, Duration::hours(1));
+
+        assert_ne!(first.token_id, second.token_id);
+        assert_ne!(first.signature, second.signature);
+        mgr.consume_token(&first);
+
+        assert!(matches!(
+            mgr.verify_token(&first, &vk),
+            Err(TokenError::AlreadyConsumed)
+        ));
+        assert!(
+            mgr.verify_token(&second, &vk).is_ok(),
+            "consuming one rapidly minted token must not consume another"
+        );
     }
 
     #[test]

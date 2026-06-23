@@ -19,29 +19,18 @@ pub struct PeerInfo {
     pub state: PeerState,
     pub session_id: Option<SessionId>,
     pub capabilities: Vec<String>,
-    pub first_seen: DateTime<Utc>,
     pub last_seen: DateTime<Utc>,
 }
 
 impl PeerInfo {
     fn new(endpoints: Vec<SocketAddr>) -> Self {
-        let now = Utc::now();
         Self {
             endpoints,
             state: PeerState::Discovered,
             session_id: None,
             capabilities: Vec::new(),
-            first_seen: now,
-            last_seen: now,
+            last_seen: Utc::now(),
         }
-    }
-
-    pub fn first_seen(&self) -> DateTime<Utc> {
-        self.first_seen
-    }
-
-    pub fn last_seen(&self) -> DateTime<Utc> {
-        self.last_seen
     }
 }
 
@@ -88,6 +77,10 @@ impl PeerManager {
 
     pub fn get_endpoints(&self, peer_id: &PeerId) -> Option<Vec<SocketAddr>> {
         self.peers.read().get(peer_id).map(|i| i.endpoints.clone())
+    }
+
+    pub fn last_seen(&self, peer_id: &PeerId) -> Option<DateTime<Utc>> {
+        self.peers.read().get(peer_id).map(|i| i.last_seen)
     }
 
     pub fn connected_peers(&self) -> Vec<PeerId> {
@@ -137,10 +130,7 @@ mod tests {
 
         assert_eq!(mgr.get_state(&peer), Some(PeerState::Discovered));
         assert_eq!(mgr.peer_count(), 1);
-
-        let peers = mgr.peers.read();
-        let info = peers.get(&peer).unwrap();
-        assert!(info.first_seen() <= info.last_seen());
+        assert!(mgr.last_seen(&peer).is_some());
     }
 
     #[test]

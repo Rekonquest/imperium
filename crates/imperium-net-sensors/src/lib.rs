@@ -2,8 +2,8 @@ mod classifier;
 mod fusion;
 mod signature_engine;
 
-pub use classifier::{ClassifierSensor, ClassifierConfig};
-pub use fusion::{SensorFusion, FusionPolicy};
+pub use classifier::{ClassifierConfig, ClassifierSensor};
+pub use fusion::{FusionPolicy, SensorFusion};
 pub use signature_engine::SignatureEngineSensor;
 
 use std::sync::Arc;

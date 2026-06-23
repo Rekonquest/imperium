@@ -18,7 +18,6 @@ members = [
     "crates/imperium-net-transport",
     "crates/imperium-net-strainer",
     "crates/imperium-net-sensors",
-    "crates/imperium-net-watchtower",
     "crates/imperium-net-signatures",
     "crates/imperium-net-toolkit",
     "crates/imperium-cli",

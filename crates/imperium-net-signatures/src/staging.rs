@@ -5,8 +5,7 @@ use chrono::Utc;
 use imperium_bus::Bus;
 use imperium_net_crypto::{HybridEd25519Mldsa, HybridSigningKey};
 use imperium_protocol::{
-    Message, PeerId, SignatureApproved,
-    SignatureCandidate, SignatureRejected,
+    Message, PeerId, SignatureApproved, SignatureCandidate, SignatureRejected,
 };
 use parking_lot::RwLock;
 use thiserror::Error;
@@ -74,9 +73,7 @@ impl StagingArea {
         signing_key: &HybridSigningKey,
     ) -> Result<SignatureApproved, StagingError> {
         let mut candidates = self.candidates.write();
-        let staged = candidates
-            .get_mut(&id)
-            .ok_or(StagingError::NotFound(id))?;
+        let staged = candidates.get_mut(&id).ok_or(StagingError::NotFound(id))?;
 
         if staged.status != CandidateStatus::Pending {
             return Err(StagingError::AlreadyProcessed(id));
@@ -110,9 +107,7 @@ impl StagingArea {
         reason: &str,
     ) -> Result<SignatureRejected, StagingError> {
         let mut candidates = self.candidates.write();
-        let staged = candidates
-            .get_mut(&id)
-            .ok_or(StagingError::NotFound(id))?;
+        let staged = candidates.get_mut(&id).ok_or(StagingError::NotFound(id))?;
 
         if staged.status != CandidateStatus::Pending {
             return Err(StagingError::AlreadyProcessed(id));

@@ -1,15 +1,18 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
 use imperium_bus::Bus;
 use imperium_protocol::{
-    EmergencyShutdown, Message, OrchestratorDecision, OrchestratorState,
-    ProtocolCommand, ProtocolCommandKind, ProtocolEvent, ProtocolEventKind,
-    ProtocolRole, ProtocolStatus, ThreatAssessment,
+    EmergencyShutdown, Message, OrchestratorDecision, OrchestratorState, ProtocolCommand,
+    ProtocolCommandKind, ProtocolEvent, ProtocolEventKind, ProtocolRole, ProtocolStatus,
+    ThreatAssessment, ToolActivationRequest,
 };
 use parking_lot::RwLock;
 use thiserror::Error;
+
+use crate::hardening::HardeningController;
 
 #[derive(Debug, Error)]
 pub enum OrchestratorError {
@@ -30,6 +33,11 @@ pub struct OrchestratorPolicy {
     pub health_failure_threshold: u32,
     pub burn_threshold: f64,
     pub double_degraded_policy: DoubleDegradedPolicy,
+    pub toolkit_enabled: bool,
+    pub toolkit_activation_threshold: f64,
+    pub threat_tool_name: Option<String>,
+    pub emergency_tool_name: Option<String>,
+    pub adaptive_hardening_enabled: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +53,11 @@ impl Default for OrchestratorPolicy {
             health_failure_threshold: 3,
             burn_threshold: 0.8,
             double_degraded_policy: DoubleDegradedPolicy::EmergencyShutdown,
+            toolkit_enabled: true,
+            toolkit_activation_threshold: 0.8,
+            threat_tool_name: Some("transport.diagnostics".to_string()),
+            emergency_tool_name: Some("forensics.emergency.snapshot".to_string()),
+            adaptive_hardening_enabled: true,
         }
     }
 }
@@ -127,9 +140,7 @@ impl Orchestrator {
             ProtocolEventKind::HealingFailed { reason } => {
                 self.handle_healing_failure(&event.protocol_name, reason)
             }
-            ProtocolEventKind::SelfTestPassed => {
-                self.handle_self_test_passed(&event.protocol_name)
-            }
+            ProtocolEventKind::SelfTestPassed => self.handle_self_test_passed(&event.protocol_name),
             ProtocolEventKind::SelfTestFailed { reason } => {
                 self.handle_self_test_failed(&event.protocol_name, reason)
             }
@@ -188,15 +199,12 @@ impl Orchestrator {
                 Ok(Some(decision))
             }
 
-            OrchestratorState::Healing if is_active => {
-                self.trigger_emergency_shutdown(
-                    &format!("active protocol {} crashed during healing", protocol_name),
-                )
-            }
+            OrchestratorState::Healing if is_active => self.trigger_emergency_shutdown(&format!(
+                "active protocol {} crashed during healing",
+                protocol_name
+            )),
 
-            OrchestratorState::Healing if !is_active => {
-                Ok(None)
-            }
+            OrchestratorState::Healing if !is_active => Ok(None),
 
             _ => Ok(None),
         }
@@ -254,11 +262,10 @@ impl Orchestrator {
         }
 
         match self.config.policy.double_degraded_policy {
-            DoubleDegradedPolicy::EmergencyShutdown => {
-                self.trigger_emergency_shutdown(
-                    &format!("healing failed for {}: {}", protocol_name, reason),
-                )
-            }
+            DoubleDegradedPolicy::EmergencyShutdown => self.trigger_emergency_shutdown(&format!(
+                "healing failed for {}: {}",
+                protocol_name, reason
+            )),
             DoubleDegradedPolicy::SafeModeLock => {
                 tracing::warn!("safe mode lock: healing failed for {}", protocol_name);
                 Ok(None)
@@ -285,8 +292,34 @@ impl Orchestrator {
         &self,
         assessment: &ThreatAssessment,
     ) -> Result<Option<OrchestratorDecision>, OrchestratorError> {
+        if self.config.policy.toolkit_enabled
+            && assessment.confidence >= self.config.policy.toolkit_activation_threshold
+        {
+            if let Some(tool_name) = &self.config.policy.threat_tool_name {
+                let active_name = self.active.read().name.clone();
+                let mut context = HashMap::new();
+                context.insert("source".to_string(), format!("{:?}", assessment.source));
+                context.insert(
+                    "confidence".to_string(),
+                    format!("{:.4}", assessment.confidence),
+                );
+                context.insert("description".to_string(), assessment.description.clone());
+                context.insert("active_protocol".to_string(), active_name);
+                context.insert(
+                    "suggested_action".to_string(),
+                    format!("{:?}", assessment.suggested_action),
+                );
+
+                self.emit_tool_request(tool_name, "orchestrator.high_confidence_threat", context)?;
+            }
+        }
+
         if assessment.confidence >= self.config.policy.burn_threshold {
             let active_name = self.active.read().name.clone();
+            if self.config.policy.adaptive_hardening_enabled {
+                self.emit_hardening_profile(&active_name, "orchestrator.high_confidence_threat")?;
+            }
+
             tracing::warn!(
                 "high-confidence threat ({:.2}) against active protocol {}",
                 assessment.confidence,
@@ -307,6 +340,23 @@ impl Orchestrator {
         reason: &str,
     ) -> Result<Option<OrchestratorDecision>, OrchestratorError> {
         *self.state.write() = OrchestratorState::Emergency;
+
+        if self.config.policy.toolkit_enabled {
+            if let Some(tool_name) = &self.config.policy.emergency_tool_name {
+                let mut context = HashMap::new();
+                context.insert("reason".to_string(), reason.to_string());
+                context.insert(
+                    "active_protocol".to_string(),
+                    self.active.read().name.clone(),
+                );
+                context.insert(
+                    "standby_protocol".to_string(),
+                    self.standby.read().name.clone(),
+                );
+
+                self.emit_tool_request(tool_name, "orchestrator.emergency_shutdown", context)?;
+            }
+        }
 
         let shutdown = EmergencyShutdown {
             reason: reason.to_string(),
@@ -340,18 +390,48 @@ impl Orchestrator {
             issued_at: Utc::now(),
         };
 
+        self.bus
+            .publish("net.transport.command", Message::ProtocolCmd(cmd))?;
+
+        Ok(())
+    }
+
+    fn emit_tool_request(
+        &self,
+        tool_name: &str,
+        trigger: &str,
+        context: HashMap<String, String>,
+    ) -> Result<(), OrchestratorError> {
+        let request = ToolActivationRequest {
+            tool_name: tool_name.to_string(),
+            trigger: trigger.to_string(),
+            context,
+            timestamp: Utc::now(),
+        };
+
+        self.bus
+            .publish("net.toolkit.request", Message::ToolActivationReq(request))?;
+
+        Ok(())
+    }
+
+    fn emit_hardening_profile(
+        &self,
+        protocol_name: &str,
+        reason: &str,
+    ) -> Result<(), OrchestratorError> {
+        let mut profile = HardeningController::resilience_profile(Some(protocol_name.to_string()));
+        profile.reason = reason.to_string();
+
         self.bus.publish(
-            "net.transport.command",
-            Message::ProtocolCmd(cmd),
+            "net.transport.hardening.apply",
+            Message::ProtocolHardeningProfile(profile),
         )?;
 
         Ok(())
     }
 
-    fn emit_decision(
-        &self,
-        decision: &OrchestratorDecision,
-    ) -> Result<(), OrchestratorError> {
+    fn emit_decision(&self, decision: &OrchestratorDecision) -> Result<(), OrchestratorError> {
         self.bus.publish(
             "net.transport.decision",
             Message::OrchestratorDecision(decision.clone()),
@@ -359,9 +439,7 @@ impl Orchestrator {
         Ok(())
     }
 
-    pub fn subscribe_threat_assessments(
-        self: &Arc<Self>,
-    ) -> tokio::task::JoinHandle<()> {
+    pub fn subscribe_threat_assessments(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
         let mut sub = self.bus.subscribe("net.sensors.");
         let orch = Arc::clone(self);
         tokio::spawn(async move {
@@ -381,39 +459,7 @@ impl Orchestrator {
         })
     }
 
-    pub fn subscribe_watchtower_observations(
-        self: &Arc<Self>,
-    ) -> tokio::task::JoinHandle<()> {
-        let mut sub = self.bus.subscribe("net.watchtower.");
-        let orch = Arc::clone(self);
-        tokio::spawn(async move {
-            loop {
-                match sub.recv().await {
-                    Ok(event) => {
-                        if let Message::WatchtowerObservation(ref obs) = event.message {
-                            let assessment = ThreatAssessment {
-                                source: imperium_protocol::ThreatSource::Watchtower,
-                                confidence: obs.confidence,
-                                description: obs.description.clone(),
-                                remote_addr: None,
-                                timestamp: obs.timestamp,
-                                suggested_action: obs.suggested_action.clone(),
-                            };
-                            if let Err(e) = orch.handle_threat_assessment(&assessment) {
-                                tracing::error!(error = %e, "failed to handle watchtower observation");
-                            }
-                        }
-                    }
-                    Err(imperium_bus::BusError::Closed) => break,
-                    Err(_) => continue,
-                }
-            }
-        })
-    }
-
-    pub fn subscribe_protocol_events(
-        self: &Arc<Self>,
-    ) -> tokio::task::JoinHandle<()> {
+    pub fn subscribe_protocol_events(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
         let mut sub = self.bus.subscribe("net.transport.event");
         let orch = Arc::clone(self);
         tokio::spawn(async move {
@@ -560,33 +606,12 @@ mod tests {
             suggested_action: SuggestedAction::TriggerFailover,
         };
 
-        orch.bus.publish(
-            "net.sensors.signature_match",
-            Message::ThreatAssessment(assessment),
-        ).unwrap();
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        assert_eq!(orch.state(), OrchestratorState::Healing);
-    }
-
-    #[tokio::test]
-    async fn subscribe_watchtower_observation_triggers_failover() {
-        let orch = arc_orchestrator();
-        let _handle = orch.subscribe_watchtower_observations();
-
-        let obs = imperium_protocol::WatchtowerObservation {
-            pattern_id: "test_pattern".into(),
-            description: "suspicious pattern detected".into(),
-            confidence: 0.95,
-            evidence: vec!["evidence1".into()],
-            timestamp: Utc::now(),
-            suggested_action: SuggestedAction::TriggerFailover,
-        };
-
-        orch.bus.publish(
-            "net.watchtower.observation",
-            Message::WatchtowerObservation(obs),
-        ).unwrap();
+        orch.bus
+            .publish(
+                "net.sensors.signature_match",
+                Message::ThreatAssessment(assessment),
+            )
+            .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(orch.state(), OrchestratorState::Healing);
@@ -601,17 +626,141 @@ mod tests {
             protocol_name: "xray".into(),
             role: ProtocolRole::Active,
             status: ProtocolStatus::Failed,
-            event: ProtocolEventKind::Crashed { reason: "bus crash".into() },
+            event: ProtocolEventKind::Crashed {
+                reason: "bus crash".into(),
+            },
             timestamp: Utc::now(),
         };
 
-        orch.bus.publish(
-            "net.transport.event",
-            Message::ProtocolEvt(event),
-        ).unwrap();
+        orch.bus
+            .publish("net.transport.event", Message::ProtocolEvt(event))
+            .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(orch.state(), OrchestratorState::Healing);
+    }
+
+    #[tokio::test]
+    async fn high_threat_requests_diagnostics_tool() {
+        let bus = Arc::new(Bus::new());
+        let config = OrchestratorConfig {
+            active_protocol: "xray".into(),
+            standby_protocol: "amneziawg".into(),
+            policy: OrchestratorPolicy::default(),
+        };
+        let orch = Orchestrator::new(config, Arc::clone(&bus));
+        let mut toolkit_sub = bus.subscribe("net.toolkit.request");
+
+        let assessment = ThreatAssessment {
+            source: ThreatSource::SignatureEngine,
+            confidence: 0.95,
+            description: "signature match".into(),
+            remote_addr: None,
+            timestamp: Utc::now(),
+            suggested_action: SuggestedAction::TriggerFailover,
+        };
+
+        orch.handle_threat_assessment(&assessment).unwrap();
+
+        let event = tokio::time::timeout(std::time::Duration::from_millis(100), toolkit_sub.recv())
+            .await
+            .expect("toolkit request")
+            .unwrap();
+
+        match event.message {
+            Message::ToolActivationReq(request) => {
+                assert_eq!(request.tool_name, "transport.diagnostics");
+                assert_eq!(request.trigger, "orchestrator.high_confidence_threat");
+                assert_eq!(request.context.get("active_protocol").unwrap(), "xray");
+            }
+            _ => panic!("expected toolkit activation request"),
+        }
+    }
+
+    #[tokio::test]
+    async fn high_threat_requests_adaptive_hardening() {
+        let bus = Arc::new(Bus::new());
+        let config = OrchestratorConfig {
+            active_protocol: "xray".into(),
+            standby_protocol: "amneziawg".into(),
+            policy: OrchestratorPolicy::default(),
+        };
+        let orch = Orchestrator::new(config, Arc::clone(&bus));
+        let mut hardening_sub = bus.subscribe("net.transport.hardening.apply");
+
+        let assessment = ThreatAssessment {
+            source: ThreatSource::SignatureEngine,
+            confidence: 0.95,
+            description: "signature match".into(),
+            remote_addr: None,
+            timestamp: Utc::now(),
+            suggested_action: SuggestedAction::TriggerFailover,
+        };
+
+        orch.handle_threat_assessment(&assessment).unwrap();
+
+        let event =
+            tokio::time::timeout(std::time::Duration::from_millis(100), hardening_sub.recv())
+                .await
+                .expect("hardening request")
+                .unwrap();
+
+        match event.message {
+            Message::ProtocolHardeningProfile(profile) => {
+                assert_eq!(profile.profile_id, "resilience-rf-inspired");
+                assert_eq!(profile.protocol_name.as_deref(), Some("xray"));
+                assert_eq!(profile.reason, "orchestrator.high_confidence_threat");
+            }
+            _ => panic!("expected hardening profile"),
+        }
+    }
+
+    #[tokio::test]
+    async fn emergency_shutdown_requests_snapshot_tool() {
+        let bus = Arc::new(Bus::new());
+        let config = OrchestratorConfig {
+            active_protocol: "xray".into(),
+            standby_protocol: "amneziawg".into(),
+            policy: OrchestratorPolicy::default(),
+        };
+        let orch = Orchestrator::new(config, Arc::clone(&bus));
+        let mut toolkit_sub = bus.subscribe("net.toolkit.request");
+
+        let crash1 = ProtocolEvent {
+            protocol_name: "xray".into(),
+            role: ProtocolRole::Active,
+            status: ProtocolStatus::Failed,
+            event: ProtocolEventKind::Crashed {
+                reason: "crash 1".into(),
+            },
+            timestamp: Utc::now(),
+        };
+        orch.handle_protocol_event(&crash1).unwrap();
+
+        let crash2 = ProtocolEvent {
+            protocol_name: "amneziawg".into(),
+            role: ProtocolRole::Active,
+            status: ProtocolStatus::Failed,
+            event: ProtocolEventKind::Crashed {
+                reason: "crash 2".into(),
+            },
+            timestamp: Utc::now(),
+        };
+        orch.handle_protocol_event(&crash2).unwrap();
+
+        let event = tokio::time::timeout(std::time::Duration::from_millis(100), toolkit_sub.recv())
+            .await
+            .expect("toolkit request")
+            .unwrap();
+
+        match event.message {
+            Message::ToolActivationReq(request) => {
+                assert_eq!(request.tool_name, "forensics.emergency.snapshot");
+                assert_eq!(request.trigger, "orchestrator.emergency_shutdown");
+                assert!(request.context.contains_key("reason"));
+            }
+            _ => panic!("expected toolkit activation request"),
+        }
     }
 
     #[test]

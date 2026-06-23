@@ -1,7 +1,9 @@
+mod access;
 mod config;
 mod membership;
 mod token;
 
+pub use access::AccessPolicy;
 pub use config::{ClusterConfig, ConfigManager};
 pub use membership::{MembershipManager, MembershipState};
 pub use token::TokenManager;

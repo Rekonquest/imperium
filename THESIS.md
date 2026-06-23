@@ -2,6 +2,11 @@
 
 **Status:** Architectural constitution. Read this before reading the blueprint. Refer back to it when any design decision feels uncertain.
 
+**Current implementation note:** The watchtower subsystem has been removed from
+the active build. The deterministic bus, classifier/signature sensors,
+operator-triggered extraction, and operator approval flow are the current
+architecture.
+
 ---
 
 ## What Imperium is
@@ -22,7 +27,7 @@ Imperium runs as a subsystem inside Imperium. One process. One Tokio runtime. On
 
 The bus and the message schemas in `imperium-protocol` are the constitution. New message types are designed, not improvised. Subscription patterns follow the patterns already established in Imperium's other subsystems.
 
-**Forbidden patterns:** spawning child processes for "the UI" or "the orchestrator" or "the watchtower." Opening localhost HTTP servers for inter-subsystem communication. Treating any Imperium subsystem as a client of another. Serde-JSON round-trips between "frontend" and "backend." There is no frontend and backend. There is one process with multiple crates.
+**Forbidden patterns:** spawning child processes for "the UI" or "the orchestrator." Opening localhost HTTP servers for inter-subsystem communication. Treating any Imperium subsystem as a client of another. Serde-JSON round-trips between "frontend" and "backend." There is no frontend and backend. There is one process with multiple crates.
 
 If a task seems to require any of those, the task has been misunderstood. Stop and ask before writing code.
 
@@ -30,7 +35,7 @@ If a task seems to require any of those, the task has been misunderstood. Stop a
 
 Every component does one thing. The thing it does is described in one sentence. Its behavior is deterministic given its inputs. It does not classify, does not make policy decisions, does not have internal intelligence.
 
-Intelligence is provided by separate, named components (classifiers, watchtower) whose outputs are messages on the bus. The dumb components consume those messages alongside other inputs and act according to deterministic policy.
+Intelligence is provided by separate, named sensor components whose outputs are messages on the bus. The dumb components consume those messages alongside other inputs and act according to deterministic policy.
 
 A new component that "would just be cleaner if it could handle multiple cases" is two components, not one. Composition of simple things beats complexity in a single thing.
 
@@ -39,7 +44,6 @@ A new component that "would just be cleaner if it could handle multiple cases" i
 Every intelligent or adaptive component in the system sits alongside a deterministic baseline. The deterministic baseline is load-bearing. The intelligent component is additive sharpening.
 
 - Reflex classifier micro-models complement the orchestrator's deterministic policy.
-- The watchtower complements the orchestrator. The watchtower emits observations. It does not issue commands.
 - The signature engine complements the classifier. Both feed `ThreatAssessment` events into the same pipeline.
 - Operator-extracted signatures complement the bundled signature database. The bundled set always loads. Extracted signatures are additions to it, never replacements for it.
 - The Imperium stack as a whole complements standard cryptography. Cryptographic security must hold even if every strainer and every classifier is bypassed.
@@ -54,14 +58,13 @@ Strainers are dumb. A single strainer filters one shape. To filter more shapes, 
 
 Strainer composition is declared per-protocol and per-context. The strainer crates themselves are protocol-agnostic. Composition is data, not code.
 
-Strainers do not modify forwarded user traffic. Strainers shape responses to suspected adversaries, filter authentication exchanges before they reach cryptographic verifiers, and mediate inputs to interpreting components (classifiers, watchtower). They never decide what to do with bytes. Routing decisions are made upstream; strainers are on-path or off-path for a given flow.
+Strainers do not modify forwarded user traffic. Strainers shape responses to suspected adversaries, filter authentication exchanges before they reach cryptographic verifiers, and mediate inputs to interpreting components such as classifiers. They never decide what to do with bytes. Routing decisions are made upstream; strainers are on-path or off-path for a given flow.
 
 ### 5. Deterministic substrate, intelligent edges
 
 Every probabilistic component has a deterministic component running alongside it whose outputs are auditable and whose failures are uncorrelated with the probabilistic component's failures.
 
 - Classifiers (probabilistic) shadowed by signature engine (deterministic).
-- Watchtower (probabilistic pattern recognition) shadowed by deterministic policy in the orchestrator.
 - LLM-driven deploy agent (probabilistic) shadowed by compose-file validator (deterministic).
 - Signature extraction proposal (probabilistic if model-driven) shadowed by operator-approved promotion (deterministic).
 
@@ -77,7 +80,7 @@ The orchestrator does not make decisions under unclear conditions. Going dark is
 
 ### 7. Closed-loop signature extraction, operator-approved
 
-When the watchtower identifies events that warrant signature extraction, a deterministic extraction crate produces a candidate signature. The candidate lands in a staging area. The operator reviews and approves. Only approved signatures join the active database.
+When the operator or sensor layer identifies events that warrant signature extraction, a deterministic extraction crate produces a candidate signature. The candidate lands in a staging area. The operator reviews and approves. Only approved signatures join the active database.
 
 **No automated signature promotion.** The operator-in-the-loop is the defense against adversarial-input poisoning of the signature database.
 
@@ -99,7 +102,7 @@ The system makes the operator's work cheap and the attacker's work visible. It d
 
 No external dependencies for runtime correctness. No phone-home, no telemetry, no auto-update of signatures or models from vendor infrastructure. Bundled releases are signed by Lucerna Labs and verifiable by the operator on install.
 
-Optional capabilities (watchtower's white-hat model, cloud LLM providers, signaling rendezvous services) are clearly optional and the system functions correctly without them.
+Optional capabilities (cloud LLM providers, signaling rendezvous services) are clearly optional and the system functions correctly without them.
 
 ---
 
@@ -123,7 +126,6 @@ These are real design decisions that have not been made and need to be made deli
 
 - **The flagship naming.** "Imperium" stays as a working name throughout this build. Lucerna Labs may rename before any external release. Crate names should use a stable prefix (suggest `imperium-net-*` or similar within the Imperium workspace) that's distinct from `imperium-protocol` to avoid naming collision with the message-schema crate.
 - **Cross-operator signature sharing.** Single-operator-only by default. Manual submission to Lucerna Labs as an opt-in channel for v1.5+. Peer-to-peer signature mesh is research-grade and not in scope for v1.
-- **Watchtower model supply chain.** The white-hat model is optional. When enabled, it runs in-process, has no outbound network access, and is verified against an operator-declared trusted hash on load. Specific model choice is operator-configured.
 
 ---
 

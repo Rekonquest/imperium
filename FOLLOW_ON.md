@@ -27,21 +27,8 @@ to a Linux node, add the Unix socket path with feature gating:
 - Shared `dispatch_command` function (already platform-agnostic)
 - API surface identical between platforms
 
-## 4. Watchtower-initiated extraction path
+## 4. ~~Watchtower-initiated extraction path~~ (removed)
 
-The current extraction loop is operator-triggered: the CLI publishes
-`ExtractionRequest` via the control pipe. A natural extension is watchtower-
-initiated extraction — when the watchtower observer detects a repeated pattern
-of suspicious traffic, it publishes an `ExtractionRequest` automatically.
-
-Implementation shape:
-- Watchtower observer evaluates observation history for repeated signatures
-- On threshold breach, publishes `ExtractionRequest` to
-  `net.signatures.extraction_request` with `requested_by: "watchtower"`
-- Extraction loop already subscribes to this topic — no wiring changes needed
-- Candidate enters staging as `pending`, still requires operator approval
-- Add a rate limiter to prevent watchtower from flooding the extraction pipeline
-
-The extraction loop, staging area, and approval flow are already in place from
-Round 5. This item only requires the watchtower-side trigger logic and a
-per-observation deduplication guard.
+The watchtower subsystem has been removed. Signature extraction remains
+operator-triggered through `net.signatures.extraction_request`, and candidates
+still require operator approval before activation.

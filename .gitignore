@@ -5,3 +5,16 @@
 .DS_Store
 Thumbs.db
 /files-extract
+/target/
+/node_modules/
+/dist/
+/build/
+/.next/
+/out/
+/__pycache__/
+/.pytest_cache/
+/.mypy_cache/
+/.venv/
+/venv/
+/env/
+*.zip

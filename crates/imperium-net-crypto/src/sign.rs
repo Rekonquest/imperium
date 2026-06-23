@@ -1,6 +1,5 @@
 use ed25519_dalek::{
-    Signature as Ed25519Sig, Signer, SigningKey as Ed25519Sk, Verifier,
-    VerifyingKey as Ed25519Vk,
+    Signature as Ed25519Sig, Signer, SigningKey as Ed25519Sk, Verifier, VerifyingKey as Ed25519Vk,
 };
 use ml_dsa::MlDsa65;
 use rand_core::CryptoRngCore;
@@ -53,7 +52,9 @@ impl HybridSignature {
 pub struct HybridEd25519Mldsa;
 
 impl HybridEd25519Mldsa {
-    pub fn generate_keypair(rng: &mut impl CryptoRngCore) -> (HybridSigningKey, HybridVerifyingKey) {
+    pub fn generate_keypair(
+        rng: &mut impl CryptoRngCore,
+    ) -> (HybridSigningKey, HybridVerifyingKey) {
         let ed25519_sk = Ed25519Sk::generate(&mut *rng);
         let ed25519_vk = ed25519_sk.verifying_key();
 

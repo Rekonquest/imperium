@@ -129,7 +129,10 @@ impl SessionManager {
     }
 
     pub fn get_session_state(&self, session_id: &SessionId) -> Option<SessionState> {
-        self.sessions.read().get(session_id).map(|s| s.state.clone())
+        self.sessions
+            .read()
+            .get(session_id)
+            .map(|s| s.state.clone())
     }
 
     pub fn get_session_for_peer(&self, peer_id: &PeerId) -> Option<SessionId> {

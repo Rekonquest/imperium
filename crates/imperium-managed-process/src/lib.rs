@@ -228,7 +228,10 @@ impl ManagedProcess {
     pub async fn restart(&mut self) -> Result<(), ProcessError> {
         let backoff = match &self.config.restart_policy {
             RestartPolicy::Never => return Err(ProcessError::MaxRetriesExceeded),
-            RestartPolicy::OnFailure { max_retries, backoff } => {
+            RestartPolicy::OnFailure {
+                max_retries,
+                backoff,
+            } => {
                 if self.restart_count >= *max_retries {
                     return Err(ProcessError::MaxRetriesExceeded);
                 }
@@ -300,7 +303,10 @@ mod tests {
         assert_eq!(proc.state(), ProcessState::Stopped);
 
         proc.start().await.unwrap();
-        assert!(matches!(proc.state(), ProcessState::Running | ProcessState::Starting));
+        assert!(matches!(
+            proc.state(),
+            ProcessState::Running | ProcessState::Starting
+        ));
 
         tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -310,8 +316,16 @@ mod tests {
     #[tokio::test]
     async fn double_start_fails() {
         let config = ProcessConfig {
-            binary: if cfg!(windows) { PathBuf::from("cmd") } else { PathBuf::from("sleep") },
-            args: if cfg!(windows) { vec!["/C".into(), "timeout".into(), "/T".into(), "10".into()] } else { vec!["10".into()] },
+            binary: if cfg!(windows) {
+                PathBuf::from("cmd")
+            } else {
+                PathBuf::from("sleep")
+            },
+            args: if cfg!(windows) {
+                vec!["/C".into(), "timeout".into(), "/T".into(), "10".into()]
+            } else {
+                vec!["10".into()]
+            },
             env: HashMap::new(),
             health_check_interval: Duration::from_secs(5),
             restart_policy: RestartPolicy::Never,

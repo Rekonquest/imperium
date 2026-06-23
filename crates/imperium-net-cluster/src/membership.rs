@@ -64,11 +64,7 @@ impl MembershipManager {
         }
     }
 
-    pub fn request_membership(
-        &self,
-        peer_id: PeerId,
-        bus: &Bus,
-    ) -> Result<(), MembershipError> {
+    pub fn request_membership(&self, peer_id: PeerId, bus: &Bus) -> Result<(), MembershipError> {
         let mut members = self.members.write();
         if members.contains_key(&peer_id) {
             let record = &members[&peer_id];
@@ -94,6 +90,7 @@ impl MembershipManager {
             cluster_id: self.cluster_id.clone(),
             requesting_peer: peer_id,
             bootstrap_token: imperium_protocol::BootstrapTokenPayload {
+                token_id: uuid::Uuid::new_v4(),
                 cluster_id: self.cluster_id.clone(),
                 issued_by: self.local_peer_id.clone(),
                 issued_at: Utc::now(),
@@ -236,10 +233,7 @@ impl MembershipManager {
         );
     }
 
-    pub fn subscribe_membership_grants(
-        self: &Arc<Self>,
-        bus: &Bus,
-    ) -> tokio::task::JoinHandle<()> {
+    pub fn subscribe_membership_grants(self: &Arc<Self>, bus: &Bus) -> tokio::task::JoinHandle<()> {
         let mut sub = bus.subscribe("net.cluster.membership.granted");
         let mgr = Arc::clone(self);
         tokio::spawn(async move {
@@ -268,11 +262,13 @@ impl MembershipManager {
         for peer_id in &gossip.members {
             if !self.is_member(peer_id) {
                 let mut members = self.members.write();
-                members.entry(peer_id.clone()).or_insert_with(|| MemberRecord {
-                    state: MembershipState::Approved,
-                    granted_at: Some(Utc::now()),
-                    granted_by: Some(gossip.from_peer.clone()),
-                });
+                members
+                    .entry(peer_id.clone())
+                    .or_insert_with(|| MemberRecord {
+                        state: MembershipState::Approved,
+                        granted_at: Some(Utc::now()),
+                        granted_by: Some(gossip.from_peer.clone()),
+                    });
             }
         }
     }
@@ -337,7 +333,8 @@ mod tests {
         bus.publish(
             "net.cluster.membership.granted",
             Message::MembershipGrant(grant),
-        ).unwrap();
+        )
+        .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(mgr.is_member(&new_peer));

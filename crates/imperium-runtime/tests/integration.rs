@@ -49,7 +49,8 @@ async fn test_1_emergency_shutdown_end_to_end() {
         },
         timestamp: chrono::Utc::now(),
     };
-    bus.publish("net.transport.event", Message::ProtocolEvt(crash_active)).unwrap();
+    bus.publish("net.transport.event", Message::ProtocolEvt(crash_active))
+        .unwrap();
 
     // Wait for failover to process
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -60,16 +61,31 @@ async fn test_1_emergency_shutdown_end_to_end() {
 
     // Verify decisions were published: PromoteStandby, QuarantineActive, BeginHealing
     let d1 = tokio::time::timeout(Duration::from_millis(100), decision_sub.recv())
-        .await.unwrap().unwrap();
-    assert!(matches!(d1.message, Message::OrchestratorDecision(OrchestratorDecision::PromoteStandby { .. })));
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        d1.message,
+        Message::OrchestratorDecision(OrchestratorDecision::PromoteStandby { .. })
+    ));
 
     let d2 = tokio::time::timeout(Duration::from_millis(100), decision_sub.recv())
-        .await.unwrap().unwrap();
-    assert!(matches!(d2.message, Message::OrchestratorDecision(OrchestratorDecision::QuarantineActive { .. })));
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        d2.message,
+        Message::OrchestratorDecision(OrchestratorDecision::QuarantineActive { .. })
+    ));
 
     let d3 = tokio::time::timeout(Duration::from_millis(100), decision_sub.recv())
-        .await.unwrap().unwrap();
-    assert!(matches!(d3.message, Message::OrchestratorDecision(OrchestratorDecision::BeginHealing { .. })));
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        d3.message,
+        Message::OrchestratorDecision(OrchestratorDecision::BeginHealing { .. })
+    ));
 
     // Now crash the new active (amneziawg) — triggers double-degraded → emergency
     let crash_new_active = ProtocolEvent {
@@ -81,7 +97,11 @@ async fn test_1_emergency_shutdown_end_to_end() {
         },
         timestamp: chrono::Utc::now(),
     };
-    bus.publish("net.transport.event", Message::ProtocolEvt(crash_new_active)).unwrap();
+    bus.publish(
+        "net.transport.event",
+        Message::ProtocolEvt(crash_new_active),
+    )
+    .unwrap();
 
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -90,11 +110,16 @@ async fn test_1_emergency_shutdown_end_to_end() {
 
     // Verify: EmergencyShutdown event published on "emergency.transport.double_degraded"
     let emergency = tokio::time::timeout(Duration::from_millis(100), emergency_sub.recv())
-        .await.unwrap().unwrap();
+        .await
+        .unwrap()
+        .unwrap();
     if let Message::EmergencyShutdown(es) = &emergency.message {
         assert!(es.reason.contains("crashed during healing"));
     } else {
-        panic!("expected EmergencyShutdown message, got {:?}", emergency.message);
+        panic!(
+            "expected EmergencyShutdown message, got {:?}",
+            emergency.message
+        );
     }
 
     // Verify: topic follows convention and matches coordinator's "emergency" prefix
@@ -109,31 +134,38 @@ async fn test_1_emergency_shutdown_end_to_end() {
     use imperium_runtime::RuntimeCoordinator;
     use std::sync::Mutex;
 
-    let vault = Arc::new(Mutex::new(
-        imperium_secrets_vault::Vault::new(imperium_store::Store::in_memory()),
-    ));
+    let vault = Arc::new(Mutex::new(imperium_secrets_vault::Vault::new(
+        imperium_store::Store::in_memory(),
+    )));
     assert!(!vault.lock().unwrap().is_sealed());
 
-    let coord = RuntimeCoordinator::new()
-        .with_vault(Arc::clone(&vault));
+    let coord = RuntimeCoordinator::new().with_vault(Arc::clone(&vault));
 
     let coord_bus = coord.bus();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(20)).await;
-        coord_bus.publish(
-            "emergency.transport.double_degraded",
-            Message::EmergencyShutdown(EmergencyShutdown {
-                reason: "test vault seal".into(),
-                triggered_at: chrono::Utc::now(),
-                active_protocol: None,
-                standby_protocol: None,
-            }),
-        ).unwrap();
+        coord_bus
+            .publish(
+                "emergency.transport.double_degraded",
+                Message::EmergencyShutdown(EmergencyShutdown {
+                    reason: "test vault seal".into(),
+                    triggered_at: chrono::Utc::now(),
+                    active_protocol: None,
+                    standby_protocol: None,
+                }),
+            )
+            .unwrap();
     });
 
     let reason = coord.run().await;
-    assert!(matches!(reason, imperium_runtime::ShutdownReason::EmergencyShutdown { .. }));
-    assert!(vault.lock().unwrap().is_sealed(), "vault must be sealed after emergency shutdown");
+    assert!(matches!(
+        reason,
+        imperium_runtime::ShutdownReason::EmergencyShutdown { .. }
+    ));
+    assert!(
+        vault.lock().unwrap().is_sealed(),
+        "vault must be sealed after emergency shutdown"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -160,11 +192,17 @@ async fn test_2_cluster_formation_via_bus() {
     let (operator_sk, operator_vk) = HybridEd25519Mldsa::generate_keypair(&mut rng);
 
     // Node A: operator node with full membership
-    let mgr_a = Arc::new(MembershipManager::new(cluster_id.clone(), node_a_id.clone()));
+    let mgr_a = Arc::new(MembershipManager::new(
+        cluster_id.clone(),
+        node_a_id.clone(),
+    ));
     let _grant_sub_a = mgr_a.subscribe_membership_grants(&bus);
 
     // Node B: joining node
-    let mgr_b = Arc::new(MembershipManager::new(cluster_id.clone(), node_b_id.clone()));
+    let mgr_b = Arc::new(MembershipManager::new(
+        cluster_id.clone(),
+        node_b_id.clone(),
+    ));
     let _grant_sub_b = mgr_b.subscribe_membership_grants(&bus);
 
     // Third observer on the bus to verify gossip propagation
@@ -172,11 +210,7 @@ async fn test_2_cluster_formation_via_bus() {
 
     // Step 1: Operator mints a bootstrap token
     let token_mgr = TokenManager::new(cluster_id.clone());
-    let token = token_mgr.mint_token(
-        &node_a_id,
-        &operator_sk,
-        chrono::Duration::hours(1),
-    );
+    let token = token_mgr.mint_token(&node_a_id, &operator_sk, chrono::Duration::hours(1));
 
     // Step 2: Token verifies
     assert!(token_mgr.verify_token(&token, &operator_vk).is_ok());
@@ -185,12 +219,9 @@ async fn test_2_cluster_formation_via_bus() {
     mgr_a.request_membership(node_b_id.clone(), &bus).unwrap();
 
     // Step 4: Operator approves on Node A
-    let grant = mgr_a.approve_membership(
-        &node_b_id,
-        &node_a_id,
-        &operator_sk,
-        &bus,
-    ).unwrap();
+    let grant = mgr_a
+        .approve_membership(&node_b_id, &node_a_id, &operator_sk, &bus)
+        .unwrap();
 
     // Wait for bus propagation
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -214,7 +245,9 @@ async fn test_2_cluster_formation_via_bus() {
 
     // Verify: gossip propagated — third subscriber sees membership update
     let gossip = tokio::time::timeout(Duration::from_millis(100), gossip_sub.recv())
-        .await.unwrap().unwrap();
+        .await
+        .unwrap()
+        .unwrap();
     if let Message::MembershipGossip(g) = &gossip.message {
         assert_eq!(g.members.len(), 2);
         assert!(g.members.contains(&node_a_id));
@@ -259,7 +292,8 @@ async fn test_3_failover_via_bus() {
         },
         timestamp: chrono::Utc::now(),
     };
-    bus.publish("net.transport.event", Message::ProtocolEvt(crash)).unwrap();
+    bus.publish("net.transport.event", Message::ProtocolEvt(crash))
+        .unwrap();
 
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -271,7 +305,9 @@ async fn test_3_failover_via_bus() {
 
     // Verify: PromoteStandby decision published
     let d1 = tokio::time::timeout(Duration::from_millis(100), decision_sub.recv())
-        .await.unwrap().unwrap();
+        .await
+        .unwrap()
+        .unwrap();
     assert!(matches!(
         d1.message,
         Message::OrchestratorDecision(OrchestratorDecision::PromoteStandby { .. })
@@ -288,7 +324,8 @@ async fn test_3_failover_via_bus() {
         event: ProtocolEventKind::HealingSucceeded,
         timestamp: chrono::Utc::now(),
     };
-    bus.publish("net.transport.event", Message::ProtocolEvt(heal)).unwrap();
+    bus.publish("net.transport.event", Message::ProtocolEvt(heal))
+        .unwrap();
 
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -308,9 +345,7 @@ async fn test_3_failover_via_bus() {
 #[tokio::test]
 async fn test_4_strainer_rejection_to_memory_log() {
     use imperium_memory_log::MemoryLog;
-    use imperium_net_strainer::{
-        AuthShapeOuterStrainer, StrainerInput, StrainerStack,
-    };
+    use imperium_net_strainer::{AuthShapeOuterStrainer, StrainerInput, StrainerStack};
 
     let bus = Arc::new(Bus::new());
 
@@ -318,8 +353,7 @@ async fn test_4_strainer_rejection_to_memory_log() {
     let _log_sub = log.subscribe_strainer_rejections(&bus);
 
     // Build a strainer stack with an auth-outer strainer (max 128 bytes)
-    let mut stack = StrainerStack::new("auth_stack", "test_protocol")
-        .with_bus(Arc::clone(&bus));
+    let mut stack = StrainerStack::new("auth_stack", "test_protocol").with_bus(Arc::clone(&bus));
     stack.add_stage(Arc::new(AuthShapeOuterStrainer::new(128)));
 
     // Drive: feed oversized input → triggers rejection
@@ -338,22 +372,35 @@ async fn test_4_strainer_rejection_to_memory_log() {
 
     // Verify: memory log recorded the rejection
     let entries = log.entries_since(0);
-    assert_eq!(entries.len(), 1, "expected one log entry from the rejection");
+    assert_eq!(
+        entries.len(),
+        1,
+        "expected one log entry from the rejection"
+    );
 
     let entry = &entries[0];
     if let Message::StrainerRejection(ref rej) = entry.event.message {
         // Verify all five provenance fields are populated
         assert!(!rej.strainer_id.is_empty(), "strainer_id must be populated");
         assert_eq!(rej.stack_id, "auth_stack");
-        assert!(!rej.shape_failed.is_empty(), "shape_failed must be populated");
-        assert!(rej.source_identifier.is_some(), "source_identifier must be populated");
+        assert!(
+            !rej.shape_failed.is_empty(),
+            "shape_failed must be populated"
+        );
+        assert!(
+            rej.source_identifier.is_some(),
+            "source_identifier must be populated"
+        );
         assert_eq!(
             rej.source_identifier.unwrap().to_string(),
             "192.168.1.100:9999"
         );
         // timestamp is always populated by construction
     } else {
-        panic!("expected StrainerRejection in log, got {:?}", entry.event.message);
+        panic!(
+            "expected StrainerRejection in log, got {:?}",
+            entry.event.message
+        );
     }
 }
 
@@ -371,9 +418,9 @@ async fn test_4_strainer_rejection_to_memory_log() {
 
 #[tokio::test]
 async fn test_5_signature_approval_triggers_engine_notification() {
+    use imperium_net_crypto::HybridEd25519Mldsa;
     use imperium_net_sensors::SignatureEngineSensor;
     use imperium_net_signatures::StagingArea;
-    use imperium_net_crypto::HybridEd25519Mldsa;
     use imperium_store::Store;
     use rand::rngs::OsRng;
 
@@ -391,11 +438,11 @@ async fn test_5_signature_approval_triggers_engine_notification() {
     };
     let candidate_id = candidate.id;
     let key = format!("signature_candidate:{}", candidate_id);
-    store.put(&key, serde_json::to_vec(&candidate).unwrap()).unwrap();
+    store
+        .put(&key, serde_json::to_vec(&candidate).unwrap())
+        .unwrap();
 
-    let engine = Arc::new(
-        SignatureEngineSensor::new(Arc::clone(&bus)).with_store(store),
-    );
+    let engine = Arc::new(SignatureEngineSensor::new(Arc::clone(&bus)).with_store(store));
     let _engine_sub = engine.subscribe_signature_approvals(&bus);
 
     let mut activation_sub = bus.subscribe("net.signatures.activated");
@@ -416,7 +463,9 @@ async fn test_5_signature_approval_triggers_engine_notification() {
 
     // Verify: engine received the approval and published SignatureActivated
     let activated = tokio::time::timeout(Duration::from_millis(200), activation_sub.recv())
-        .await.unwrap().unwrap();
+        .await
+        .unwrap()
+        .unwrap();
 
     if let Message::SignatureActivated(ref act) = activated.message {
         assert_eq!(act.candidate_id, candidate_id);
@@ -436,17 +485,17 @@ async fn test_5_signature_approval_triggers_engine_notification() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 6: System operates normally without watchtower
+// Test 6: System operates normally without adaptive observation
 //
 // Blueprint acceptance criterion (Phase 5):
-//   "Optional capabilities (watchtower) are clearly optional and the system
-//    functions correctly without them."
+//   "Adaptive observation is not load-bearing. The deterministic substrate
+//    functions correctly without it."
 //
-// Runs simplified versions of tests 1-4 WITHOUT any watchtower subsystem.
+// Runs simplified versions of tests 1-4 with only deterministic components.
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_6_system_without_watchtower() {
+async fn test_6_system_without_adaptive_observation() {
     use imperium_memory_log::MemoryLog;
     use imperium_net_cluster::MembershipManager;
     use imperium_net_crypto::HybridEd25519Mldsa;
@@ -456,7 +505,7 @@ async fn test_6_system_without_watchtower() {
 
     let bus = Arc::new(Bus::new());
 
-    // --- Orchestrator (no watchtower registered) ---
+    // --- Orchestrator ---
     let orch_config = OrchestratorConfig {
         active_protocol: "xray".into(),
         standby_protocol: "amneziawg".into(),
@@ -480,11 +529,10 @@ async fn test_6_system_without_watchtower() {
     let _member_sub = membership.subscribe_membership_grants(&bus);
 
     // --- Strainer ---
-    let mut stack = StrainerStack::new("auth_stack", "xray")
-        .with_bus(Arc::clone(&bus));
+    let mut stack = StrainerStack::new("auth_stack", "xray").with_bus(Arc::clone(&bus));
     stack.add_stage(Arc::new(AuthShapeOuterStrainer::new(128)));
 
-    // Test A: Failover works without watchtower
+    // Test A: Failover works through deterministic protocol events
     let crash = ProtocolEvent {
         protocol_name: "xray".into(),
         role: ProtocolRole::Active,
@@ -494,18 +542,23 @@ async fn test_6_system_without_watchtower() {
         },
         timestamp: chrono::Utc::now(),
     };
-    bus.publish("net.transport.event", Message::ProtocolEvt(crash)).unwrap();
+    bus.publish("net.transport.event", Message::ProtocolEvt(crash))
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert_eq!(orch.state(), OrchestratorState::Healing);
 
-    // Test B: Cluster formation works without watchtower
+    // Test B: Cluster formation works
     let joining_peer = PeerId::new();
-    membership.request_membership(joining_peer.clone(), &bus).unwrap();
-    let _grant = membership.approve_membership(&joining_peer, &local_id, &sk, &bus).unwrap();
+    membership
+        .request_membership(joining_peer.clone(), &bus)
+        .unwrap();
+    let _grant = membership
+        .approve_membership(&joining_peer, &local_id, &sk, &bus)
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(membership.is_member(&joining_peer));
 
-    // Test C: Strainer rejection works without watchtower
+    // Test C: Strainer rejection works
     let input = StrainerInput {
         data: vec![0u8; 256],
         source: Some("10.0.0.1:1234".parse().unwrap()),
@@ -518,11 +571,10 @@ async fn test_6_system_without_watchtower() {
 
     // Verify: log has entries (at minimum the strainer rejection)
     let entries = log.entries_since(0);
-    assert!(!entries.is_empty(), "memory log should have recorded events without watchtower");
-
-    // Verify: no errors about missing watchtower in any subscriber
-    // (This is verified implicitly — if any subscriber blocked on a
-    // watchtower event, the test would time out.)
+    assert!(
+        !entries.is_empty(),
+        "memory log should have recorded deterministic events"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -585,24 +637,32 @@ async fn test_7_closed_loop_extraction_to_engine_match() {
             reason: "suspicious probe pattern".into(),
             requested_by: "test_operator".into(),
         }),
-    ).unwrap();
+    )
+    .unwrap();
 
     // Wait for candidate_pending notification
-    let pending_event = tokio::time::timeout(
-        Duration::from_millis(500),
-        pending_sub.recv(),
-    ).await.unwrap().unwrap();
+    let pending_event = tokio::time::timeout(Duration::from_millis(500), pending_sub.recv())
+        .await
+        .unwrap()
+        .unwrap();
 
-    let candidate_id = if let Message::SignatureCandidatePending(ref pending) = pending_event.message {
-        assert_eq!(pending.requested_by, "test_operator");
-        pending.candidate_id
-    } else {
-        panic!("expected SignatureCandidatePending, got {:?}", pending_event.message);
-    };
+    let candidate_id =
+        if let Message::SignatureCandidatePending(ref pending) = pending_event.message {
+            assert_eq!(pending.requested_by, "test_operator");
+            pending.candidate_id
+        } else {
+            panic!(
+                "expected SignatureCandidatePending, got {:?}",
+                pending_event.message
+            );
+        };
 
     // Verify candidate is in the store
     let key = format!("signature_candidate:{}", candidate_id);
-    assert!(store.exists(&key), "candidate must be in store before approval");
+    assert!(
+        store.exists(&key),
+        "candidate must be in store before approval"
+    );
 
     // Step 3: Copy candidate data into a store the engine owns
     // (engine takes Store by value; extraction loop holds Arc<Store>)
@@ -611,9 +671,7 @@ async fn test_7_closed_loop_extraction_to_engine_match() {
     engine_store.put(&key, candidate_data).unwrap();
 
     // Step 4: Wire the signature engine with two-phase activation
-    let engine = Arc::new(
-        SignatureEngineSensor::new(Arc::clone(&bus)).with_store(engine_store),
-    );
+    let engine = Arc::new(SignatureEngineSensor::new(Arc::clone(&bus)).with_store(engine_store));
     let _engine_handle = engine.subscribe_signature_approvals(&bus);
 
     let mut activated_sub = bus.subscribe("net.signatures.activated");
@@ -627,27 +685,32 @@ async fn test_7_closed_loop_extraction_to_engine_match() {
     assert_eq!(approved.candidate_id, candidate_id);
 
     // Wait for activation
-    let activated_event = tokio::time::timeout(
-        Duration::from_millis(500),
-        activated_sub.recv(),
-    ).await.unwrap().unwrap();
+    let activated_event = tokio::time::timeout(Duration::from_millis(500), activated_sub.recv())
+        .await
+        .unwrap()
+        .unwrap();
 
     if let Message::SignatureActivated(ref act) = activated_event.message {
         assert_eq!(act.candidate_id, candidate_id);
     } else {
-        panic!("expected SignatureActivated, got {:?}", activated_event.message);
+        panic!(
+            "expected SignatureActivated, got {:?}",
+            activated_event.message
+        );
     }
 
     // Step 6: Verify the engine loaded the rule and can match traffic
-    assert_eq!(engine.extracted_count(), 1, "engine should have loaded the extracted rule");
+    assert_eq!(
+        engine.extracted_count(),
+        1,
+        "engine should have loaded the extracted rule"
+    );
 
     // The extracted YARA rule contains a hex pattern derived from the serialized
     // event data. The extractor's frequency filter strips common bytes (like `"`
     // in JSON), so the pattern is a subsequence of the original serialization.
     // Construct probe data that contains the pattern bytes contiguously.
-    let candidate: SignatureCandidate = serde_json::from_slice(
-        &store.get(&key).unwrap()
-    ).unwrap();
+    let candidate: SignatureCandidate = serde_json::from_slice(&store.get(&key).unwrap()).unwrap();
 
     // Extract the hex string from the rule text: `$a = { HEX } condition`
     let hex_start = candidate.rule_text.find("$a = { ").unwrap() + 7;

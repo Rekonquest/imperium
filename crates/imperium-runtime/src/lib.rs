@@ -7,6 +7,10 @@ use imperium_protocol::Message;
 use imperium_secrets_vault::Vault;
 use tokio::sync::Notify;
 
+mod deployment;
+
+pub use deployment::{DeploymentError, DeploymentOrchestrator};
+
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     #[error("subsystem failed to initialize: {0}")]
@@ -121,9 +125,7 @@ impl RuntimeCoordinator {
         self.bus
             .publish(
                 format!("runtime.subsystem.ready.{}", name),
-                Message::SubsystemReady {
-                    name: name.clone(),
-                },
+                Message::SubsystemReady { name: name.clone() },
             )
             .map_err(|e| RuntimeError::InitFailed(e.to_string()))?;
 
@@ -206,7 +208,10 @@ impl RuntimeCoordinator {
     }
 
     pub fn subsystem_names(&self) -> Vec<String> {
-        self.subsystems.iter().map(|s| s.name().to_string()).collect()
+        self.subsystems
+            .iter()
+            .map(|s| s.name().to_string())
+            .collect()
     }
 }
 
@@ -284,13 +289,10 @@ mod tests {
         let result = rt.register(&GoodSubsystem).await;
         assert!(result.is_ok());
 
-        let event = tokio::time::timeout(
-            Duration::from_millis(100),
-            sub.recv(),
-        )
-        .await
-        .expect("timed out")
-        .expect("recv failed");
+        let event = tokio::time::timeout(Duration::from_millis(100), sub.recv())
+            .await
+            .expect("timed out")
+            .expect("recv failed");
 
         assert_eq!(&*event.topic, "runtime.subsystem.ready.good");
     }
@@ -313,12 +315,11 @@ mod tests {
 
         let _ = rt.register(&FailingSubsystem).await;
 
-        let result = tokio::time::timeout(
-            Duration::from_millis(50),
-            sub.recv(),
-        )
-        .await;
-        assert!(result.is_err(), "no event should be published on init failure");
+        let result = tokio::time::timeout(Duration::from_millis(50), sub.recv()).await;
+        assert!(
+            result.is_err(),
+            "no event should be published on init failure"
+        );
     }
 
     #[tokio::test]
@@ -328,13 +329,10 @@ mod tests {
 
         rt.register(&BusPublishingSubsystem).await.unwrap();
 
-        let event = tokio::time::timeout(
-            Duration::from_millis(100),
-            sub.recv(),
-        )
-        .await
-        .expect("timed out")
-        .expect("recv failed");
+        let event = tokio::time::timeout(Duration::from_millis(100), sub.recv())
+            .await
+            .expect("timed out")
+            .expect("recv failed");
 
         assert_eq!(&*event.topic, "custom.init");
     }
@@ -347,21 +345,15 @@ mod tests {
         rt.register(&GoodSubsystem).await.unwrap();
         rt.register(&BusPublishingSubsystem).await.unwrap();
 
-        let e1 = tokio::time::timeout(
-            Duration::from_millis(100),
-            sub.recv(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
+        let e1 = tokio::time::timeout(Duration::from_millis(100), sub.recv())
+            .await
+            .unwrap()
+            .unwrap();
 
-        let e2 = tokio::time::timeout(
-            Duration::from_millis(100),
-            sub.recv(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
+        let e2 = tokio::time::timeout(Duration::from_millis(100), sub.recv())
+            .await
+            .unwrap()
+            .unwrap();
 
         let topics: Vec<String> = vec![e1.topic.to_string(), e2.topic.to_string()];
         assert!(topics.contains(&"runtime.subsystem.ready.good".to_string()));
@@ -420,7 +412,11 @@ mod tests {
             }
             async fn shutdown(&self) -> Result<(), RuntimeError> {
                 let pos = ORDER.fetch_add(1, Ordering::SeqCst);
-                assert_eq!(pos, self.expected_position, "subsystem {} shut down out of order", self.name);
+                assert_eq!(
+                    pos, self.expected_position,
+                    "subsystem {} shut down out of order",
+                    self.name
+                );
                 Ok(())
             }
         }
@@ -430,9 +426,27 @@ mod tests {
         let mut coord = RuntimeCoordinator::new();
         // Registered in order: alpha(0), beta(1), gamma(2)
         // Shutdown reverse: gamma(0), beta(1), alpha(2)
-        coord.register(Arc::new(OrderedSub { name: "alpha", expected_position: 2 })).await.unwrap();
-        coord.register(Arc::new(OrderedSub { name: "beta", expected_position: 1 })).await.unwrap();
-        coord.register(Arc::new(OrderedSub { name: "gamma", expected_position: 0 })).await.unwrap();
+        coord
+            .register(Arc::new(OrderedSub {
+                name: "alpha",
+                expected_position: 2,
+            }))
+            .await
+            .unwrap();
+        coord
+            .register(Arc::new(OrderedSub {
+                name: "beta",
+                expected_position: 1,
+            }))
+            .await
+            .unwrap();
+        coord
+            .register(Arc::new(OrderedSub {
+                name: "gamma",
+                expected_position: 0,
+            }))
+            .await
+            .unwrap();
 
         let results = coord.shutdown_all().await;
         assert_eq!(results.len(), 3);
@@ -504,14 +518,16 @@ mod tests {
             }
         }
 
-        let mut coord = RuntimeCoordinator::new()
-            .with_shutdown_timeout(Duration::from_millis(100));
+        let mut coord = RuntimeCoordinator::new().with_shutdown_timeout(Duration::from_millis(100));
         coord.register(Arc::new(SlowSubsystem)).await.unwrap();
 
         let results = coord.shutdown_all().await;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, "slow");
-        assert!(matches!(&results[0].1, Err(RuntimeError::ShutdownTimeout(_))));
+        assert!(matches!(
+            &results[0].1,
+            Err(RuntimeError::ShutdownTimeout(_))
+        ));
     }
 
     #[tokio::test]
@@ -540,8 +556,7 @@ mod tests {
         let vault = Arc::new(Mutex::new(Vault::new(imperium_store::Store::in_memory())));
         assert!(!vault.lock().unwrap().is_sealed());
 
-        let mut coord = RuntimeCoordinator::new()
-            .with_vault(Arc::clone(&vault));
+        let mut coord = RuntimeCoordinator::new().with_vault(Arc::clone(&vault));
         coord.register(Arc::new(GoodSubsystem)).await.unwrap();
 
         coord.shutdown_all().await;
@@ -571,12 +586,14 @@ mod tests {
 
         assert!(vault.lock().is_err(), "mutex should be poisoned");
 
-        let mut coord = RuntimeCoordinator::new()
-            .with_vault(Arc::clone(&vault));
+        let mut coord = RuntimeCoordinator::new().with_vault(Arc::clone(&vault));
         coord.register(Arc::new(GoodSubsystem)).await.unwrap();
 
         let results = coord.shutdown_all().await;
         assert_eq!(results.len(), 1);
-        assert!(results[0].1.is_ok(), "subsystem shutdown must succeed even with poisoned vault");
+        assert!(
+            results[0].1.is_ok(),
+            "subsystem shutdown must succeed even with poisoned vault"
+        );
     }
 }

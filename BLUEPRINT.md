@@ -2,6 +2,10 @@
 
 **Read THESIS.md first.** This document describes *what to build*. The thesis describes *what makes it correct*. Implementation decisions defer to the thesis when the blueprint is silent or ambiguous.
 
+**Current implementation note:** The watchtower phase and
+`imperium-net-watchtower` crate have been removed. Closed-loop extraction is now
+driven by operator or sensor-selected events, then gated by operator approval.
+
 ---
 
 ## Scope of this build
@@ -23,8 +27,7 @@ Build in phases. Each phase is independently shippable (the system works at the 
 ### Phase 2: Two-protocol transport with active/standby orchestration
 ### Phase 3: Strainer primitive and first concrete strainer stacks
 ### Phase 4: Classifier sensors + signature engine sensor
-### Phase 5: Watchtower with projection-based memory
-### Phase 6: Closed-loop signature extraction with operator approval
+### Phase 5: Closed-loop signature extraction with operator approval
 ### Phase 7: Dormant toolkit + forensics primitives
 
 Each phase has its own section below with concrete crate names, message types, and acceptance criteria.
