@@ -34,6 +34,13 @@ struct StagedCandidate {
     rejection_reason: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct StagedCandidateSnapshot {
+    pub candidate: SignatureCandidate,
+    pub status: CandidateStatus,
+    pub rejection_reason: Option<String>,
+}
+
 pub struct StagingArea {
     candidates: Arc<RwLock<HashMap<Uuid, StagedCandidate>>>,
     bus: Arc<Bus>,
@@ -149,6 +156,17 @@ impl StagingArea {
             .map(|c| c.candidate.clone())
             .collect()
     }
+
+    pub fn candidate(&self, id: Uuid) -> Option<StagedCandidateSnapshot> {
+        self.candidates
+            .read()
+            .get(&id)
+            .map(|staged| StagedCandidateSnapshot {
+                candidate: staged.candidate.clone(),
+                status: staged.status.clone(),
+                rejection_reason: staged.rejection_reason.clone(),
+            })
+    }
 }
 
 pub struct ApprovalFlow {
@@ -230,6 +248,25 @@ mod tests {
         let rejected = staging.reject(id, &operator, "false positive").unwrap();
         assert_eq!(rejected.candidate_id, id);
         assert_eq!(staging.pending_count(), 0);
+    }
+
+    #[test]
+    fn candidate_snapshot_reports_status() {
+        let bus = Arc::new(Bus::new());
+        let staging = StagingArea::new(bus);
+
+        let candidate = test_candidate();
+        let id = staging.submit(candidate.clone()).unwrap();
+        let pending = staging.candidate(id).unwrap();
+        assert_eq!(pending.candidate.id, candidate.id);
+        assert_eq!(pending.status, CandidateStatus::Pending);
+
+        let operator = PeerId::new();
+        staging.reject(id, &operator, "false positive").unwrap();
+
+        let rejected = staging.candidate(id).unwrap();
+        assert_eq!(rejected.status, CandidateStatus::Rejected);
+        assert_eq!(rejected.rejection_reason.as_deref(), Some("false positive"));
     }
 
     #[test]

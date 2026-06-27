@@ -5,8 +5,7 @@ use imperium_bus::Bus;
 use imperium_net_mesh::{NatTraversalPlanner, PathManager};
 use imperium_net_toolkit::{ToolManager, ToolManifest, TriggerCondition};
 use imperium_net_transport::{
-    HardeningController, Orchestrator, OrchestratorConfig, OrchestratorPolicy,
-    ProbeDeceptionEngine,
+    HardeningController, Orchestrator, OrchestratorConfig, OrchestratorPolicy, ProbeDeceptionEngine,
 };
 use imperium_protocol::{
     FecPolicy, Message, NatTraversalMode, OrchestratorDecision, OrchestratorState,
@@ -130,7 +129,14 @@ fn run_adversarial_probe_modulation(profile: &ProtocolHardeningProfile) -> Adver
         };
         let source = rotated_source(0x10, i);
         report.threshold_skating_attempts += 1;
-        record_probe_attempt(&engine, &mut report, profile, false, Some(source), confidence);
+        record_probe_attempt(
+            &engine,
+            &mut report,
+            profile,
+            false,
+            Some(source),
+            confidence,
+        );
     }
 
     for i in 0..256 {
@@ -140,11 +146,7 @@ fn run_adversarial_probe_modulation(profile: &ProtocolHardeningProfile) -> Adver
     }
 
     let repeated_source = Some("198.51.100.88:443".parse().unwrap());
-    for _ in 0..(profile
-        .probe_deception
-        .response_budget_per_source_per_hour
-        + 24)
-    {
+    for _ in 0..(profile.probe_deception.response_budget_per_source_per_hour + 24) {
         report.budget_burn_attempts += 1;
         record_probe_attempt(&engine, &mut report, profile, false, repeated_source, 0.99);
     }
@@ -177,7 +179,11 @@ fn run_seeded_chaos_hardening_simulation(
         let bus = Arc::new(Bus::new());
         let engine = ProbeDeceptionEngine::new(Arc::clone(&bus), profile.clone());
         let mut rng = DeterministicRng::new(0x9e37_79b9_7f4a_7c15 ^ u64::from(seed));
-        let repeated_source = Some(format!("198.51.100.{}:443", 10 + (seed % 8)).parse().unwrap());
+        let repeated_source = Some(
+            format!("198.51.100.{}:443", 10 + (seed % 8))
+                .parse()
+                .unwrap(),
+        );
 
         for attempt in 0..attempts_per_seed {
             let tactic = rng.next_u32() % 9;
@@ -238,10 +244,7 @@ fn merge_probe_report(report: &mut ChaosHardeningReport, probe: AdversarialProbe
     report.transcript_budget_violations += probe.transcript_budget_violations;
 }
 
-fn run_seeded_payload_loss_burn(
-    profile: &ProtocolHardeningProfile,
-    seed: u32,
-) -> SimulationReport {
+fn run_seeded_payload_loss_burn(profile: &ProtocolHardeningProfile, seed: u32) -> SimulationReport {
     let mut report = SimulationReport {
         min_jitter_ms: u16::MAX,
         ..SimulationReport::default()
@@ -296,10 +299,7 @@ fn run_seeded_payload_loss_burn(
         let key_age_seconds = virtual_ms.saturating_sub(key_started_ms) / 1_000;
         let byte_trigger = report.original_user_bytes >= profile.rekey.max_key_bytes;
         let threat_trigger = profile.rekey.threat_triggered && id % 113 == 0 && id > 0;
-        if key_age_seconds >= profile.rekey.max_key_age_seconds
-            || byte_trigger
-            || threat_trigger
-        {
+        if key_age_seconds >= profile.rekey.max_key_age_seconds || byte_trigger || threat_trigger {
             report.rekey_events += 1;
             key_started_ms = virtual_ms + u64::from(profile.rekey.stagger_window_ms);
             report.original_user_bytes = 0;
@@ -331,21 +331,23 @@ fn record_probe_attempt(
     source: Option<std::net::SocketAddr>,
     confidence: f64,
 ) {
-    let decision = if !authenticated && !profile.probe_resistance.authenticated_first_packet_required
-    {
-        ProbeDeceptionDecision {
-            source,
-            mode: ProbeDeceptionMode::Disabled,
-            persona_id: "baseline-real-endpoint".to_string(),
-            response_delay_ms: 0,
-            transcript_bytes: 0,
-            routed_to_real_endpoint: true,
-            reason: "profile does not require authenticated first-packet gating".to_string(),
-            decided_at: chrono::Utc::now(),
-        }
-    } else {
-        engine.decide_probe(source, confidence, authenticated).unwrap()
-    };
+    let decision =
+        if !authenticated && !profile.probe_resistance.authenticated_first_packet_required {
+            ProbeDeceptionDecision {
+                source,
+                mode: ProbeDeceptionMode::Disabled,
+                persona_id: "baseline-real-endpoint".to_string(),
+                response_delay_ms: 0,
+                transcript_bytes: 0,
+                routed_to_real_endpoint: true,
+                reason: "profile does not require authenticated first-packet gating".to_string(),
+                decided_at: chrono::Utc::now(),
+            }
+        } else {
+            engine
+                .decide_probe(source, confidence, authenticated)
+                .unwrap()
+        };
 
     record_probe_decision(report, profile, authenticated, decision);
 }
@@ -925,8 +927,7 @@ fn adversarial_probe_modulation_cannot_reach_real_endpoint_without_auth() {
         "no unauthenticated modulation strategy should reach the real endpoint"
     );
     assert_eq!(
-        report.authenticated_real_endpoint_routes,
-        report.authenticated_control_attempts,
+        report.authenticated_real_endpoint_routes, report.authenticated_control_attempts,
         "only authenticated control probes should reach the real endpoint"
     );
     assert_eq!(report.delay_window_violations, 0);
@@ -954,8 +955,7 @@ fn adversarial_probe_modulation_is_stronger_than_baseline_gate() {
 
     assert_eq!(hardened.unauthenticated_real_endpoint_routes, 0);
     assert_eq!(
-        baseline.unauthenticated_real_endpoint_routes,
-        baseline.unauthenticated_attempts,
+        baseline.unauthenticated_real_endpoint_routes, baseline.unauthenticated_attempts,
         "baseline model has no authenticated first-packet gate"
     );
     assert!(hardened.illusion_routes > baseline.illusion_routes);
@@ -979,8 +979,7 @@ fn seeded_chaos_hardening_invariants_hold_across_mixed_attack_runs() {
         "no seeded chaos strategy should route unauthenticated probes to the real endpoint"
     );
     assert_eq!(
-        report.authenticated_real_endpoint_routes,
-        report.authenticated_control_attempts,
+        report.authenticated_real_endpoint_routes, report.authenticated_control_attempts,
         "authenticated control probes should still route to the real endpoint"
     );
     assert_eq!(report.delay_window_violations, 0);

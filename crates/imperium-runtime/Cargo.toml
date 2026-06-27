@@ -21,10 +21,10 @@ thiserror = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 rand = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 chrono = { workspace = true }
-uuid = { workspace = true }
 rand = { workspace = true }
 serde_json = { workspace = true }
 imperium-net-transport = { path = "../imperium-net-transport" }

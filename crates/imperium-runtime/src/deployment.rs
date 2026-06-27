@@ -54,7 +54,10 @@ impl DeploymentOrchestrator {
     }
 
     pub fn last_status(&self) -> Option<VpnDeploymentStatus> {
-        self.last_status.read().ok().and_then(|status| status.clone())
+        self.last_status
+            .read()
+            .ok()
+            .and_then(|status| status.clone())
     }
 
     pub fn deploy(&self, plan: VpnDeploymentPlan) -> Result<VpnDeploymentStatus, DeploymentError> {
@@ -96,11 +99,8 @@ impl DeploymentOrchestrator {
                 continue;
             }
 
-            let token = token_manager.mint_token(
-                &operator_id,
-                &operator_sk,
-                chrono::Duration::minutes(15),
-            );
+            let token =
+                token_manager.mint_token(&operator_id, &operator_sk, chrono::Duration::minutes(15));
             token_manager
                 .verify_token(&token, &operator_vk)
                 .map_err(|_| DeploymentError::InvalidOperatorCount)?;
@@ -110,12 +110,7 @@ impl DeploymentOrchestrator {
                 .map_err(|e| DeploymentError::Membership(e.to_string()))?;
             nodes[operator_index]
                 .membership
-                .approve_membership(
-                    &nodes[index].peer_id,
-                    &operator_id,
-                    &operator_sk,
-                    &self.bus,
-                )
+                .approve_membership(&nodes[index].peer_id, &operator_id, &operator_sk, &self.bus)
                 .map_err(|e| DeploymentError::Membership(e.to_string()))?;
             token_manager.consume_token(&token);
         }
@@ -138,21 +133,18 @@ impl DeploymentOrchestrator {
             Message::MembershipGossip(gossip),
         )?;
 
-        let config_version = nodes[operator_index].config.update_config(
-            plan.config_blob.clone(),
-            &operator_sk,
-            &self.bus,
-        )
-        .map_err(|e| DeploymentError::Config(e.to_string()))?;
-        let fetch_response = nodes[operator_index]
+        let config_version = nodes[operator_index]
             .config
-            .current_config()
-            .map(|config| imperium_protocol::ConfigurationFetchResponse {
+            .update_config(plan.config_blob.clone(), &operator_sk, &self.bus)
+            .map_err(|e| DeploymentError::Config(e.to_string()))?;
+        let fetch_response = nodes[operator_index].config.current_config().map(|config| {
+            imperium_protocol::ConfigurationFetchResponse {
                 cluster_id: cluster_id.clone(),
                 version: config.version,
                 config_data: config.data,
                 signature: vec![1, 2, 3],
-            });
+            }
+        });
         if let Some(resp) = fetch_response {
             for (index, node) in nodes.iter().enumerate() {
                 if index != operator_index {
@@ -201,7 +193,8 @@ impl DeploymentOrchestrator {
             NatTraversalPlanner::default_policy()
         };
         for node in &nodes {
-            let probe_plan = NatTraversalPlanner::build_probe_plan(node.peer_id.clone(), &nat_policy);
+            let probe_plan =
+                NatTraversalPlanner::build_probe_plan(node.peer_id.clone(), &nat_policy);
             self.bus
                 .publish("net.mesh.nat.plan", Message::NatProbePlan(probe_plan))?;
         }
@@ -249,7 +242,11 @@ impl DeploymentOrchestrator {
 
         let approved_nodes = nodes
             .iter()
-            .filter(|node| members.iter().all(|member| node.membership.is_member(member)))
+            .filter(|node| {
+                members
+                    .iter()
+                    .all(|member| node.membership.is_member(member))
+            })
             .count();
         let established_sessions = nodes
             .iter()
@@ -305,6 +302,27 @@ impl DeploymentOrchestrator {
         })
     }
 
+    pub fn subscribe_status_requests(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
+        let mut sub = self.bus.subscribe("net.vpn.deployment.status_request");
+        let orchestrator = Arc::clone(self);
+        tokio::spawn(async move {
+            loop {
+                match sub.recv().await {
+                    Ok(event) => {
+                        if let Message::VpnDeploymentStatusRequest(_) = event.message {
+                            let status = orchestrator
+                                .last_status()
+                                .unwrap_or_else(no_deployment_status);
+                            let _ = orchestrator.emit_status(status);
+                        }
+                    }
+                    Err(imperium_bus::BusError::Closed) => break,
+                    Err(_) => continue,
+                }
+            }
+        })
+    }
+
     fn emit_status(&self, status: VpnDeploymentStatus) -> Result<(), DeploymentError> {
         if let Ok(mut last_status) = self.last_status.write() {
             *last_status = Some(status.clone());
@@ -317,15 +335,26 @@ impl DeploymentOrchestrator {
     }
 }
 
+fn no_deployment_status() -> VpnDeploymentStatus {
+    VpnDeploymentStatus {
+        deployment_id: uuid::Uuid::nil(),
+        accepted: false,
+        reason: "no deployment has run".into(),
+        planned_nodes: 0,
+        approved_nodes: 0,
+        config_version: 0,
+        established_sessions: 0,
+        relay_fallbacks_selected: 0,
+        hardening_profiles_accepted: 0,
+        updated_at: Utc::now(),
+    }
+}
+
 fn validate_plan(plan: &VpnDeploymentPlan) -> Result<(), DeploymentError> {
     if plan.nodes.is_empty() {
         return Err(DeploymentError::EmptyPlan);
     }
-    if plan
-        .nodes
-        .iter()
-        .any(|node| node.label.trim().is_empty())
-    {
+    if plan.nodes.iter().any(|node| node.label.trim().is_empty()) {
         return Err(DeploymentError::EmptyNodeLabel);
     }
     let operator_count = plan
@@ -362,6 +391,22 @@ fn hardening_profile(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn recv_deployment_status(
+        sub: &mut imperium_bus::BusSubscription,
+    ) -> VpnDeploymentStatus {
+        for _ in 0..4 {
+            let event = tokio::time::timeout(std::time::Duration::from_millis(500), sub.recv())
+                .await
+                .expect("deployment status")
+                .unwrap();
+            if let Message::VpnDeploymentStatus(status) = event.message {
+                return status;
+            }
+        }
+
+        panic!("deployment status was not published");
+    }
 
     fn deployment_plan() -> VpnDeploymentPlan {
         VpnDeploymentPlan {
@@ -436,6 +481,51 @@ mod tests {
             Message::VpnDeploymentStatus(status)
                 if status.accepted && status.deployment_id == deployment_id
         ));
+    }
+
+    #[tokio::test]
+    async fn status_request_republishes_last_status() {
+        let bus = Arc::new(Bus::new());
+        let orchestrator = Arc::new(DeploymentOrchestrator::new(Arc::clone(&bus)));
+        let _handle = orchestrator.subscribe_status_requests();
+        let status = orchestrator.deploy(deployment_plan()).unwrap();
+        let mut status_sub = bus.subscribe("net.vpn.deployment.status");
+
+        bus.publish(
+            "net.vpn.deployment.status_request",
+            Message::VpnDeploymentStatusRequest(imperium_protocol::VpnDeploymentStatusRequest {
+                requested_by: "ordo".into(),
+                requested_at: Utc::now(),
+            }),
+        )
+        .unwrap();
+
+        let published = recv_deployment_status(&mut status_sub).await;
+        assert_eq!(published.deployment_id, status.deployment_id);
+        assert!(published.accepted);
+        assert_eq!(published.approved_nodes, 3);
+    }
+
+    #[tokio::test]
+    async fn status_request_without_deployment_reports_empty_state() {
+        let bus = Arc::new(Bus::new());
+        let orchestrator = Arc::new(DeploymentOrchestrator::new(Arc::clone(&bus)));
+        let _handle = orchestrator.subscribe_status_requests();
+        let mut status_sub = bus.subscribe("net.vpn.deployment.status");
+
+        bus.publish(
+            "net.vpn.deployment.status_request",
+            Message::VpnDeploymentStatusRequest(imperium_protocol::VpnDeploymentStatusRequest {
+                requested_by: "ordo".into(),
+                requested_at: Utc::now(),
+            }),
+        )
+        .unwrap();
+
+        let published = recv_deployment_status(&mut status_sub).await;
+        assert_eq!(published.deployment_id, uuid::Uuid::nil());
+        assert!(!published.accepted);
+        assert_eq!(published.reason, "no deployment has run");
     }
 
     #[test]

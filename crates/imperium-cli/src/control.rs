@@ -2,17 +2,34 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use imperium_bus::Bus;
+use imperium_net_signatures::{CandidateStatus, StagingArea};
 use imperium_protocol::{
     KillSwitchCommand, KillSwitchState, MasqueTunnelConfig, Message, PolicyApplyRequest,
     ProfileRotationRequest, ProtocolCommand, ProtocolCommandKind, ProtocolHardeningProfile,
-    ToolActivationRequest, TransportActiveRequest, VpnDeploymentPlan,
+    ToolActivationRequest, TransportActiveRequest, VpnDeploymentPlan, VpnDeploymentStatusRequest,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::windows::named_pipe::{PipeMode, ServerOptions};
 
 const PIPE_NAME: &str = r"\\.\pipe\imperium-control";
 
-pub async fn serve(bus: Arc<Bus>) {
+#[derive(Clone)]
+struct ControlState {
+    bus: Arc<Bus>,
+    staging: Option<Arc<StagingArea>>,
+}
+
+impl ControlState {
+    fn new(bus: Arc<Bus>, staging: Option<Arc<StagingArea>>) -> Self {
+        Self { bus, staging }
+    }
+}
+
+pub async fn serve_with_staging(bus: Arc<Bus>, staging: Arc<StagingArea>) {
+    serve_inner(Arc::new(ControlState::new(bus, Some(staging)))).await;
+}
+
+async fn serve_inner(state: Arc<ControlState>) {
     loop {
         let server = match ServerOptions::new()
             .pipe_mode(PipeMode::Message)
@@ -31,19 +48,22 @@ pub async fn serve(bus: Arc<Bus>) {
             continue;
         }
 
-        let bus = Arc::clone(&bus);
+        let state = Arc::clone(&state);
         tokio::spawn(async move {
-            handle_connection(server, bus).await;
+            handle_connection(server, state).await;
         });
     }
 }
 
-async fn handle_connection(pipe: tokio::net::windows::named_pipe::NamedPipeServer, bus: Arc<Bus>) {
+async fn handle_connection(
+    pipe: tokio::net::windows::named_pipe::NamedPipeServer,
+    state: Arc<ControlState>,
+) {
     let (reader, mut writer) = tokio::io::split(pipe);
     let mut lines = BufReader::new(reader).lines();
 
     while let Ok(Some(line)) = lines.next_line().await {
-        let response = dispatch_command(&line, &bus);
+        let response = dispatch_command_with_staging(&line, &state.bus, state.staging.as_deref());
         let msg = format!("{}\n", response);
         if writer.write_all(msg.as_bytes()).await.is_err() {
             break;
@@ -51,7 +71,12 @@ async fn handle_connection(pipe: tokio::net::windows::named_pipe::NamedPipeServe
     }
 }
 
+#[cfg(test)]
 fn dispatch_command(line: &str, bus: &Bus) -> String {
+    dispatch_command_with_staging(line, bus, None)
+}
+
+fn dispatch_command_with_staging(line: &str, bus: &Bus, staging: Option<&StagingArea>) -> String {
     let parts: Vec<&str> = line.trim().splitn(4, ' ').collect();
     match parts.as_slice() {
         ["cluster", "status"] => {
@@ -152,9 +177,10 @@ fn dispatch_command(line: &str, bus: &Bus) -> String {
         ["vpn", "deployment", "status"] => {
             let _ = bus.publish(
                 "net.vpn.deployment.status_request",
-                Message::SubsystemReady {
-                    name: "deployment-status-request".to_string(),
-                },
+                Message::VpnDeploymentStatusRequest(VpnDeploymentStatusRequest {
+                    requested_by: "control_pipe".to_string(),
+                    requested_at: chrono::Utc::now(),
+                }),
             );
             format!("{{\"status\":\"ok\",\"message\":\"deployment status requested\"}}")
         }
@@ -174,11 +200,7 @@ fn dispatch_command(line: &str, bus: &Bus) -> String {
             format!("{{\"status\":\"error\",\"message\":\"tool name is required\"}}")
         }
         ["vpn", "toolkit", "activate", request] => publish_toolkit_activation(bus, request),
-        ["signatures", "pending"] => {
-            format!(
-                "{{\"status\":\"ok\",\"message\":\"pending signatures — query staging directly\"}}"
-            )
-        }
+        ["signatures", "pending"] => render_pending_signatures(staging),
         ["signatures", "approve", id] => match uuid::Uuid::parse_str(id) {
             Ok(uuid) => {
                 let _ = bus.publish(
@@ -258,9 +280,7 @@ fn dispatch_command(line: &str, bus: &Bus) -> String {
             )
         }
         ["signatures", "show", id] => match uuid::Uuid::parse_str(id) {
-            Ok(uuid) => {
-                format!("{{\"status\":\"ok\",\"candidate_id\":\"{}\",\"message\":\"lookup requires store access\"}}", uuid)
-            }
+            Ok(uuid) => render_signature_candidate(uuid, staging),
             Err(_) => format!("{{\"status\":\"error\",\"message\":\"invalid UUID\"}}"),
         },
         ["shutdown"] => {
@@ -279,14 +299,64 @@ fn dispatch_command(line: &str, bus: &Bus) -> String {
     }
 }
 
+fn render_signature_candidate(uuid: uuid::Uuid, staging: Option<&StagingArea>) -> String {
+    let Some(staging) = staging else {
+        return serde_json::json!({
+            "status": "error",
+            "candidate_id": uuid,
+            "message": "signature staging unavailable"
+        })
+        .to_string();
+    };
+
+    match staging.candidate(uuid) {
+        Some(snapshot) => serde_json::json!({
+            "status": "ok",
+            "candidate_status": candidate_status_label(&snapshot.status),
+            "candidate": snapshot.candidate,
+            "rejection_reason": snapshot.rejection_reason
+        })
+        .to_string(),
+        None => serde_json::json!({
+            "status": "error",
+            "candidate_id": uuid,
+            "message": "candidate not found"
+        })
+        .to_string(),
+    }
+}
+
+fn render_pending_signatures(staging: Option<&StagingArea>) -> String {
+    let Some(staging) = staging else {
+        return serde_json::json!({
+            "status": "error",
+            "message": "signature staging unavailable"
+        })
+        .to_string();
+    };
+
+    let candidates = staging.pending_candidates();
+    serde_json::json!({
+        "status": "ok",
+        "pending_count": candidates.len(),
+        "candidates": candidates
+    })
+    .to_string()
+}
+
+fn candidate_status_label(status: &CandidateStatus) -> &'static str {
+    match status {
+        CandidateStatus::Pending => "pending",
+        CandidateStatus::Approved => "approved",
+        CandidateStatus::Rejected => "rejected",
+    }
+}
+
 fn publish_deployment_plan(bus: &Bus, json: &str) -> String {
     match serde_json::from_str::<VpnDeploymentPlan>(json) {
         Ok(plan) => {
             let deployment_id = plan.deployment_id;
-            let _ = bus.publish(
-                "net.vpn.deployment.apply",
-                Message::VpnDeploymentPlan(plan),
-            );
+            let _ = bus.publish("net.vpn.deployment.apply", Message::VpnDeploymentPlan(plan));
             format!(
                 "{{\"status\":\"ok\",\"message\":\"deployment plan dispatched: {}\"}}",
                 deployment_id
@@ -501,25 +571,61 @@ mod tests {
             requested_at: chrono::Utc::now(),
         };
         let resp = dispatch_command(
-            &format!("vpn deployment apply {}", serde_json::to_string(&plan).unwrap()),
+            &format!(
+                "vpn deployment apply {}",
+                serde_json::to_string(&plan).unwrap()
+            ),
             &bus,
         );
 
         assert!(resp.contains("deployment plan dispatched"));
     }
 
-    #[test]
-    fn dispatch_vpn_deployment_status() {
+    #[tokio::test]
+    async fn dispatch_vpn_deployment_status() {
         let bus = Bus::new();
+        let mut sub = bus.subscribe("net.vpn.deployment.status_request");
         let resp = dispatch_command("vpn deployment status", &bus);
+
         assert!(resp.contains("deployment status requested"));
+        let event = tokio::time::timeout(std::time::Duration::from_millis(100), sub.recv())
+            .await
+            .expect("deployment status request")
+            .unwrap();
+        assert!(matches!(
+            event.message,
+            Message::VpnDeploymentStatusRequest(request)
+                if request.requested_by == "control_pipe"
+        ));
     }
 
     #[test]
     fn dispatch_signatures_pending() {
         let bus = Bus::new();
         let resp = dispatch_command("signatures pending", &bus);
-        assert!(resp.contains("pending signatures"));
+        assert!(resp.contains("signature staging unavailable"));
+    }
+
+    #[test]
+    fn dispatch_signatures_pending_with_staging_returns_candidates() {
+        let bus = Arc::new(Bus::new());
+        let staging = StagingArea::new(Arc::clone(&bus));
+        let candidate = imperium_protocol::SignatureCandidate {
+            id: uuid::Uuid::new_v4(),
+            rule_text: "rule pending { condition: true }".into(),
+            description: "pending candidate".into(),
+            source_events: vec![imperium_protocol::EventId::new()],
+            extracted_at: chrono::Utc::now(),
+            confidence: 0.91,
+        };
+        let id = staging.submit(candidate).unwrap();
+
+        let resp = dispatch_command_with_staging("signatures pending", &bus, Some(&staging));
+        let value: serde_json::Value = serde_json::from_str(&resp).unwrap();
+
+        assert_eq!(value["status"], "ok");
+        assert_eq!(value["pending_count"], 1);
+        assert_eq!(value["candidates"][0]["id"], id.to_string());
     }
 
     #[test]
@@ -571,6 +677,34 @@ mod tests {
         let cmd = format!("signatures show {}", id);
         let resp = dispatch_command(&cmd, &bus);
         assert!(resp.contains(&id.to_string()));
+        assert!(resp.contains("signature staging unavailable"));
+    }
+
+    #[test]
+    fn dispatch_signatures_show_with_staging_returns_candidate() {
+        let bus = Arc::new(Bus::new());
+        let staging = StagingArea::new(Arc::clone(&bus));
+        let candidate = imperium_protocol::SignatureCandidate {
+            id: uuid::Uuid::new_v4(),
+            rule_text: "rule quoted { condition: true }".into(),
+            description: "operator staged candidate".into(),
+            source_events: vec![imperium_protocol::EventId::new()],
+            extracted_at: chrono::Utc::now(),
+            confidence: 0.88,
+        };
+        let id = staging.submit(candidate).unwrap();
+        let cmd = format!("signatures show {}", id);
+
+        let resp = dispatch_command_with_staging(&cmd, &bus, Some(&staging));
+        let value: serde_json::Value = serde_json::from_str(&resp).unwrap();
+
+        assert_eq!(value["status"], "ok");
+        assert_eq!(value["candidate_status"], "pending");
+        assert_eq!(value["candidate"]["id"], id.to_string());
+        assert_eq!(
+            value["candidate"]["description"],
+            "operator staged candidate"
+        );
     }
 
     #[test]

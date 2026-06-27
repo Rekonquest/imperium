@@ -124,6 +124,15 @@ Important tests:
 - `dispatch_vpn_hardening_apply_rejects_bad_json`
 - `dispatch_no_dead_cli_topics`
 
+Signature control pipe cleanup:
+
+- `signatures pending` now reads pending candidates from the live `StagingArea`
+  when the node is running.
+- `signatures show <candidate_id>` now returns a JSON candidate snapshot,
+  candidate status, and rejection reason when available.
+- Bus-only dispatch tests return an explicit `signature staging unavailable`
+  error rather than a misleading placeholder.
+
 ## NAT Traversal
 
 Implemented in:
@@ -344,7 +353,11 @@ Implemented in:
 - `crates/imperium-cli/src/control.rs`
 - `C:\Projects\ordo-device-peer\src\lib.rs`
 
-Deployment is now a real runtime service instead of only a test loop. `imperium node start` creates a `DeploymentOrchestrator` and subscribes it to `net.vpn.deployment.apply`.
+Deployment is now a real runtime service instead of only a test loop. `imperium node start` creates a `DeploymentOrchestrator` and subscribes it to `net.vpn.deployment.apply` and `net.vpn.deployment.status_request`.
+
+Ship-readiness update: the repository now includes a root `README.md` with
+build/test/run instructions, current simulation files, Ordo bridge notes, and
+the Windows control-pipe command surface.
 
 Deployment control flow:
 
@@ -357,12 +370,24 @@ Ordo typed command
   -> net.vpn.deployment.status
 ```
 
+Status query flow:
+
+```text
+Ordo typed command
+  -> Imperium control pipe line
+  -> net.vpn.deployment.status_request
+  -> DeploymentOrchestrator::subscribe_status_requests
+  -> last accepted/rejected deployment status, or explicit empty status
+  -> net.vpn.deployment.status
+```
+
 Protocol messages:
 
 - `VpnDeploymentPlan`
 - `VpnDeploymentNodeSpec`
 - `VpnDeploymentRole`
 - `VpnDeploymentStatus`
+- `VpnDeploymentStatusRequest`
 
 Control pipe commands:
 
@@ -375,6 +400,12 @@ Ordo commands:
 
 - `VpnControlCommand::DeploymentApply { plan_json }`
 - `VpnControlCommand::DeploymentStatus`
+
+Ordo bridge note: `C:\Projects\ordo-device-peer\Cargo.toml` now points at the
+live `C:\Projects\Ordo-Light-Working\ordo-protocol` and
+`C:\Projects\Ordo-Light-Working\ordo-transport` crates. The previous
+`C:\Projects\Ordo+webview+avatar` dependency path no longer exists locally and
+blocked reproducible bridge checks.
 
 What the orchestrator currently reconciles:
 
@@ -392,11 +423,15 @@ What the orchestrator currently reconciles:
 - Selects relay fallback for client nodes when `relay_auto` is enabled.
 - Applies the requested hardening preset.
 - Publishes deployment status.
+- Republishes the latest deployment status when Ordo/control requests it.
+- Reports `accepted=false` with deployment id `00000000-0000-0000-0000-000000000000` when status is requested before any deployment has run.
 
 Current runtime tests:
 
 - `deployment_orchestrator_converges_plan`
 - `subscribes_to_deployment_plan_messages`
+- `status_request_republishes_last_status`
+- `status_request_without_deployment_reports_empty_state`
 - `rejects_missing_operator`
 
 Important caveat: this is now real bus-driven orchestration, but host-level remote provisioning is still modeled locally. The next step is replacing local node/session construction with real remote agent execution through Ordo/device peers.

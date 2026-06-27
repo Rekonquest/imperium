@@ -43,7 +43,6 @@ New Imperium crates use the prefix `imperium-net-` (network defense). This is di
 - `imperium-net-transport` — VPN protocol controllers (Xray, AmneziaWG) and the active/standby orchestrator
 - `imperium-net-strainer` — strainer primitive, composition runtime
 - `imperium-net-sensors` — classifier micro-models, signature engine sensor, packet capture
-- `imperium-net-watchtower` — projection-based watchtower
 - `imperium-net-signatures` — bundled and extracted signature databases, extraction crate, operator approval flow
 - `imperium-net-toolkit` — dormant forensics and counter-forensics tools
 
@@ -51,7 +50,7 @@ Crates in the existing Imperium crate store that are extended:
 
 - `imperium-secrets-*` — gain hybrid PQC signing surfaces (ML-DSA alongside Ed25519)
 - `imperium-protocol` — gains the new message types listed in each phase
-- `imperium-memory-log`, `imperium-memory-projection` — used by the watchtower (no changes expected)
+- `imperium-memory-log`, `imperium-memory-projection` - used for deterministic event history and operator-selected extraction context
 - `imperium-runtime` — gains lifecycle hooks for the new Imperium subsystems
 
 If a primitive needs to be extracted to the crate store from the existing Imperium codebase (e.g., `ManagedProcess` for subprocess lifecycle), extract it to a new crate in the Imperium store with a clear name. Do not embed reusable primitives inside `imperium-net-*` crates.
@@ -163,7 +162,6 @@ Implements operator-signed cluster membership.
 - ICE / hole-punching beyond what STUN provides
 - Relay fallback (degraded mode is "connection fails," operator handles it)
 - Cross-operator signature sharing
-- Watchtower analysis of cluster events (Phase 5)
 
 ---
 
@@ -247,7 +245,6 @@ The orchestrator's policy is **deterministic**. No model, no classifier in the d
 
 - Strainer involvement in protocol responses (Phase 3)
 - Classifier-driven failover decisions (Phase 4)
-- Watchtower analysis of failures (Phase 5)
 
 ---
 
@@ -315,7 +312,7 @@ StrainerStackComposition { stack_id, ordered_strainer_ids, parameters, version }
 RoutingDecision { flow_id, source, applicable_strainer_stack: Option<stack_id> }
 ```
 
-`StrainerRejection` events go into `imperium-memory-log`. They are visible to the watchtower's projections. They surface in operator dashboards as attack-attempt telemetry.
+`StrainerRejection` events go into `imperium-memory-log`. They are retained as deterministic event history, can seed operator-triggered extraction, and surface in operator dashboards as attack-attempt telemetry.
 
 ### Concrete strainers to implement in Phase 3
 
@@ -348,7 +345,7 @@ Each protocol controller declares which strainer stacks compose its response pat
 
 - Authentication strainer integrated with actual auth path (the auth strainer is implemented but not yet wired into the protocol auth flow — Phase 4 adds the wiring once the sensor stack exists)
 - Smudge filter for malware C2 disruption on egress (deferred to v1.5)
-- Strainer-driven signature extraction (Phase 6)
+- Strainer-driven signature extraction (Phase 5)
 
 ---
 
@@ -434,83 +431,13 @@ These are the v1 rules. The orchestrator's policy is expected to be tuned by ope
 
 ### Out of scope for Phase 4
 
-- Watchtower analysis of patterns across many sensor events (Phase 5)
-- Signature extraction from accumulated rejection patterns (Phase 6)
+- Signature extraction from accumulated rejection patterns (Phase 5)
 
 ---
 
-## Phase 5: Watchtower with projection-based memory
+## Phase 5: Closed-loop signature extraction with operator approval
 
-**Goal:** The watchtower consumes the event log via the projection function and emits `WatchtowerObservation` events that the orchestrator may use to bias policy.
-
-### Crates touched
-
-- `imperium-net-watchtower` — watchtower implementation
-- `imperium-memory-log`, `imperium-memory-projection` — used as-is (no changes to these crates)
-- `imperium-protocol` — new message types
-
-### New message types in `imperium-protocol`
-
-```
-WatchtowerObservation {
-    id, timestamp,
-    pattern_type, confidence, evidence_event_ids, structured_payload,
-    suggested_action: None | TightenThreshold | RotateNow | InvestigateSource,
-}
-
-WatchtowerUnavailable { reason: ModelMissing | ModelHashMismatch | NotConfigured }
-```
-
-### Watchtower architecture
-
-Per the thesis, the watchtower:
-
-- Has no outbound network access (enforced at the crate level — `imperium-net-watchtower` does not depend on `reqwest`, `hyper`, or any socket-opening crate)
-- Loads a model verified against an operator-declared trusted hash; refuses to start on hash mismatch
-- Consumes structured projections from `imperium-memory-projection`, never raw log entries
-- Emits structured observations, never free-form text the orchestrator parses
-- Emits observations only; never `ProtocolCommand`, `OrchestratorDecision`, or `EmergencyShutdown`
-
-The watchtower is **optional**. When disabled or unavailable, the cluster operates at full functionality without it. The `WatchtowerUnavailable` event surfaces in the operator dashboard as a normal operating state.
-
-### Projection task taxonomy
-
-The watchtower can request projections for specific tasks. The projection function (in `imperium-memory-projection`) returns deterministic structured summaries of the relevant log slice. Initial task taxonomy:
-
-- `ClassifyPatternAround(event_id)` — what pattern does this event participate in
-- `SummarizeThreatActivity(window)` — what threats have been observed in the time window
-- `ListEpisodesMatchingTrigger(trigger_pattern)` — historical incidents matching this trigger
-- `CorrelateSourceActivity(source_id)` — what has this source been doing across the log
-
-Each task has a deterministic projection specification: which log entry types, which time bounds, which aggregation. The projection is a pure function of the log and the task.
-
-### Orchestrator consumption of watchtower observations
-
-The orchestrator may consume `WatchtowerObservation` events to bias its policy, but the bias is **deterministic policy adjustment, not policy override**:
-
-- Sustained elevated threat observation → shorten rotation interval (within configured bounds)
-- Burned-profile signal increasing → pre-stage standby choices
-- Coordinated attack pattern → enrich `EmergencyShutdown` diagnostic context if shutdown subsequently triggers
-
-The orchestrator **never** issues commands based on watchtower observations alone. Corroborating signal from the sensor layer or deterministic triggers is required.
-
-### Acceptance criteria for Phase 5
-
-- Watchtower loads, verifies its model hash, and begins emitting observations within configured intervals.
-- Disabling the watchtower in configuration causes the cluster to operate normally with watchtower observations absent from the bus.
-- An operator can review the watchtower's observations in the dashboard. Each observation links to the underlying event log entries via `evidence_event_ids`.
-- The watchtower has no outbound network capability (verified by absence of network crates in its dep graph and by integration test).
-
-### Out of scope for Phase 5
-
-- Auto-extraction of signatures from watchtower observations (Phase 6)
-- Watchtower making operational decisions (forbidden by thesis)
-
----
-
-## Phase 6: Closed-loop signature extraction with operator approval
-
-**Goal:** Patterns of attempted attacks observed by the watchtower or the sensor layer become candidate signatures. Operator reviews and approves. Approved signatures join the extracted signature database. Future attempts with matching shapes are caught at the signature engine layer.
+**Goal:** Patterns of attempted attacks observed by the sensor layer or selected by the operator become candidate signatures. Operator reviews and approves. Approved signatures join the extracted signature database. Future attempts with matching shapes are caught at the signature engine layer.
 
 ### Crates touched
 
@@ -537,20 +464,20 @@ ExtractedSignatureRollback { signature_id, reason }
 
 ### Extraction crate
 
-A deterministic Rust function that takes a slice of log events (the triggering events flagged by the watchtower or operator) and produces a candidate YARA rule.
+A deterministic Rust function that takes a slice of log events (the triggering events flagged by sensors or selected by the operator) and produces a candidate YARA rule.
 
-**The LLM is not in the extraction path.** The watchtower can *flag* events as candidates. The extractor turns flagged events into rule text deterministically based on byte patterns, surrounding context, and configured extraction heuristics. The operator can review what the extractor produced and verify it's a sensible rule.
+**The LLM is not in the extraction path.** Sensors and operators can flag events as candidates. The extractor turns flagged events into rule text deterministically based on byte patterns, surrounding context, and configured extraction heuristics. The operator can review what the extractor produced and verify it is a sensible rule.
 
 If the extraction heuristics need to evolve (better feature selection, tighter rule shapes), the extractor is updated as a code change to the crate. The extractor never learns at runtime.
 
 ### Approval flow
 
-1. Watchtower (or sensor layer, or operator directly) emits a `SignatureCandidate` event into a staging area persisted in `imperium-store`.
+1. The sensor layer or operator emits a `SignatureCandidate` event into a staging area persisted in `imperium-store`.
 2. Operator dashboard shows pending candidates. Each candidate displays:
    - The proposed YARA rule
    - The triggering events that motivated it
    - A false-positive estimate computed by running the rule against the rest of the log
-   - Provenance: when, what watchtower observation or sensor pattern, what extractor version
+   - Provenance: when, what sensor pattern or operator selection, what extractor version
 3. Operator approves or rejects.
 4. On approval: candidate is signed by the operator (hybrid Ed25519+ML-DSA), the rule lands in the extracted signature database, the signature engine reloads (YARA hot-reload is cheap), the cluster's gossip propagates the new signature to all peers.
 5. On rejection: candidate is archived. The reason for rejection is logged. If the same pattern recurs, future candidates with similar shape are flagged with reference to the prior rejection.
@@ -559,13 +486,13 @@ If the extraction heuristics need to evolve (better feature selection, tighter r
 
 If an extracted signature turns out to false-positive against legitimate traffic, the operator can roll it back. The signature is moved out of the active extracted directory into an archived directory. The gossip propagates the rollback. Provenance is retained for audit.
 
-### Acceptance criteria for Phase 6
+### Acceptance criteria for Phase 5
 
-- A simulated attack producing a recognizable pattern → watchtower flags candidate events → extractor produces a YARA rule → operator approves → signature lands in active database → subsequent attempts with the same pattern are caught at the signature engine layer.
+- A simulated attack producing a recognizable pattern -> sensor/operator-selected events -> extractor produces a YARA rule -> operator approves -> signature lands in active database -> subsequent attempts with the same pattern are caught at the signature engine layer.
 - Rollback of an extracted signature removes it from the active path and propagates to all cluster peers.
 - The bundled signature database is unaffected by extraction or rollback operations. Bundled and extracted layers remain visibly distinct in the operator dashboard.
 
-### Out of scope for Phase 6
+### Out of scope for Phase 5
 
 - Cross-operator signature sharing (deferred to v1.5+ if ever)
 - Fully automated promotion (forbidden by thesis)
@@ -612,7 +539,6 @@ All Imperium bus topics use the prefix `net.`:
 - `net.transport.*` — protocol controllers, orchestrator
 - `net.strainer.*` — strainer events, stack changes
 - `net.sensors.*` — sensor outputs, threat assessments
-- `net.watchtower.*` — watchtower observations
 - `net.signatures.*` — signature lifecycle
 - `net.toolkit.*` — dormant tool lifecycle
 
@@ -642,7 +568,6 @@ When Phases 0–7 are complete, the system has:
 - P2P self-deployment with operator-signed membership and hybrid PQC
 - Layered strainer defenses with rotatable compositions
 - Multi-sensor threat detection (classifiers + signature engine)
-- Optional watchtower with auditable observation outputs
 - Closed-loop signature extraction with operator-approved promotion
 - Dormant forensics toolkit available on-demand
 
@@ -664,3 +589,4 @@ When implementation reveals that a phase's design has a flaw:
 4. Update the blueprint in the same commit as the implementation change.
 
 The blueprint is a living document. The thesis is not. Update the blueprint freely as you learn. Update the thesis only after careful discussion.
+

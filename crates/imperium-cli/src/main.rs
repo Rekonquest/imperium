@@ -145,16 +145,20 @@ async fn cmd_node_start() {
 
     let coordinator = RuntimeCoordinator::new();
     let bus = coordinator.bus();
+    let staging = Arc::new(StagingArea::new(Arc::clone(&bus)));
 
-    let _runtime_tasks = initialize_node(bus.clone()).await;
-    tokio::spawn(control::serve(Arc::clone(&bus)));
+    let _runtime_tasks = initialize_node(bus.clone(), Arc::clone(&staging)).await;
+    tokio::spawn(control::serve_with_staging(
+        Arc::clone(&bus),
+        Arc::clone(&staging),
+    ));
 
     tracing::info!("subsystems initialized, control pipe listening, runtime entering run loop");
     let reason = coordinator.run().await;
     tracing::info!(reason = ?reason, "runtime exited");
 }
 
-async fn initialize_node(bus: Arc<Bus>) -> Vec<JoinHandle<()>> {
+async fn initialize_node(bus: Arc<Bus>, staging: Arc<StagingArea>) -> Vec<JoinHandle<()>> {
     let mut tasks = Vec::new();
 
     if let Err(e) = imperium_net_cluster::init(Arc::clone(&bus)).await {
@@ -181,7 +185,6 @@ async fn initialize_node(bus: Arc<Bus>) -> Vec<JoinHandle<()>> {
 
     let store = Arc::new(Store::in_memory());
     let memory_log = Arc::new(MemoryLog::default());
-    let staging = Arc::new(StagingArea::new(Arc::clone(&bus)));
     let toolkit = Arc::new(ToolManager::new(Arc::clone(&bus)));
     let hardening = Arc::new(HardeningController::new(Arc::clone(&bus)));
     let deployment = Arc::new(DeploymentOrchestrator::new(Arc::clone(&bus)));
@@ -193,6 +196,7 @@ async fn initialize_node(bus: Arc<Bus>) -> Vec<JoinHandle<()>> {
     tasks.push(toolkit.subscribe_activation_requests(&bus));
     tasks.push(hardening.subscribe_hardening_profiles(&bus));
     tasks.push(deployment.subscribe_deployment_plans());
+    tasks.push(deployment.subscribe_status_requests());
 
     tasks.push(memory_log.subscribe_strainer_rejections(&bus));
     tasks.push(memory_log.subscribe_protocol_events(&bus));

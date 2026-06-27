@@ -193,6 +193,12 @@ pub struct VpnDeploymentStatus {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VpnDeploymentStatusRequest {
+    pub requested_by: String,
+    pub requested_at: DateTime<Utc>,
+}
+
 // --- Phase 1: Cluster ---
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -788,6 +794,7 @@ pub enum Message {
     RelayFallbackSelected(RelayFallbackSelected),
     VpnDeploymentPlan(VpnDeploymentPlan),
     VpnDeploymentStatus(VpnDeploymentStatus),
+    VpnDeploymentStatusRequest(VpnDeploymentStatusRequest),
 
     // Phase 1: Cluster
     BootstrapToken(BootstrapTokenPayload),
@@ -1036,6 +1043,13 @@ mod tests {
             hardening_profiles_accepted: 2,
             updated_at: Utc::now(),
         }));
+
+        roundtrip_message(Message::VpnDeploymentStatusRequest(
+            VpnDeploymentStatusRequest {
+                requested_by: "operator".into(),
+                requested_at: Utc::now(),
+            },
+        ));
     }
 
     #[test]

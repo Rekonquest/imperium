@@ -183,11 +183,8 @@ async fn run_auto_cluster_deployment() -> AutoDeploymentReport {
         .iter()
         .filter(|node| node.role != DeploymentRole::Operator)
     {
-        let token = token_manager.mint_token(
-            &operator_id,
-            &operator_sk,
-            chrono::Duration::minutes(15),
-        );
+        let token =
+            token_manager.mint_token(&operator_id, &operator_sk, chrono::Duration::minutes(15));
         token_manager.verify_token(&token, &operator_vk).unwrap();
         nodes[operator_index]
             .node
@@ -310,16 +307,20 @@ async fn run_auto_cluster_deployment() -> AutoDeploymentReport {
     }
 
     for node in &nodes {
-        let default_plan =
-            NatTraversalPlanner::build_probe_plan(node.node.id.clone(), &NatTraversalPlanner::default_policy());
+        let default_plan = NatTraversalPlanner::build_probe_plan(
+            node.node.id.clone(),
+            &NatTraversalPlanner::default_policy(),
+        );
         assert!(!default_plan
             .modes
             .iter()
             .any(|mode| matches!(mode, NatTraversalMode::AggressiveBirthdayProbe)));
         report.default_nat_plans += 1;
 
-        let aggressive_plan =
-            NatTraversalPlanner::build_probe_plan(node.node.id.clone(), &NatTraversalPlanner::aggressive_policy());
+        let aggressive_plan = NatTraversalPlanner::build_probe_plan(
+            node.node.id.clone(),
+            &NatTraversalPlanner::aggressive_policy(),
+        );
         assert!(aggressive_plan
             .modes
             .iter()
@@ -447,11 +448,7 @@ async fn cluster_vpn_three_peer_control_and_relay_simulation_holds() {
     let (operator_sk, operator_vk) = HybridEd25519Mldsa::generate_keypair(&mut rng);
 
     let token_manager = TokenManager::new(cluster_id.clone());
-    let token = token_manager.mint_token(
-        &operator_id,
-        &operator_sk,
-        chrono::Duration::minutes(30),
-    );
+    let token = token_manager.mint_token(&operator_id, &operator_sk, chrono::Duration::minutes(30));
     assert!(token_manager.verify_token(&token, &operator_vk).is_ok());
 
     let mut gossip_sub = bus.subscribe("net.cluster.membership.gossip");
@@ -591,11 +588,19 @@ async fn cluster_vpn_three_peer_control_and_relay_simulation_holds() {
     assert_eq!(operator.sessions.active_session_count(), 2);
     assert_eq!(mobile.sessions.active_session_count(), 2);
     assert_eq!(relay.sessions.active_session_count(), 2);
-    assert_eq!(operator.peers.get_state(&mobile_id), Some(PeerState::Connected));
-    assert_eq!(mobile.peers.get_state(&relay_id), Some(PeerState::Connected));
+    assert_eq!(
+        operator.peers.get_state(&mobile_id),
+        Some(PeerState::Connected)
+    );
+    assert_eq!(
+        mobile.peers.get_state(&relay_id),
+        Some(PeerState::Connected)
+    );
 
-    let default_plan =
-        NatTraversalPlanner::build_probe_plan(mobile_id.clone(), &NatTraversalPlanner::default_policy());
+    let default_plan = NatTraversalPlanner::build_probe_plan(
+        mobile_id.clone(),
+        &NatTraversalPlanner::default_policy(),
+    );
     assert_eq!(default_plan.estimated_probe_count, 32);
     assert!(default_plan.relay_fallback_enabled);
     assert!(!default_plan

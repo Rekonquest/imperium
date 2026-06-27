@@ -4,7 +4,7 @@ mod staging;
 
 pub use database::{SignatureDatabase, SignatureEntry};
 pub use extractor::{ExtractionLoop, SignatureExtractor};
-pub use staging::{ApprovalFlow, StagingArea};
+pub use staging::{ApprovalFlow, CandidateStatus, StagedCandidateSnapshot, StagingArea};
 
 use std::sync::Arc;
 
