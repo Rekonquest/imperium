@@ -26,7 +26,7 @@ exclude = ["reference"]
 
 [workspace.package]
 edition = "2021"
-license = "MIT"
+license = "PolyForm-Noncommercial-1.0.0"
 authors = ["Lucerna Labs"]
 
 [workspace.dependencies]

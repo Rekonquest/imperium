@@ -3,7 +3,7 @@ name = "cloakwise"
 version = "0.1.0"
 edition = "2021"
 description = "Adaptive VPN Cluster Defense System with AI-driven traffic profile switching"
-license = "MIT"
+license = "PolyForm-Noncommercial-1.0.0"
 authors = ["VPN Defense Team"]
 
 [dependencies]

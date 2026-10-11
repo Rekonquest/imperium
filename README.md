@@ -106,3 +106,7 @@ Current release verification:
 
 Known platform note: the control surface is currently Windows named-pipe based.
 Unix socket parity is tracked in `FOLLOW_ON.md` before Linux/macOS deployment.
+
+## License
+
+Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE) (`PolyForm-Noncommercial-1.0.0`). Free for personal use, research, education, charities, public-good nonprofits, and government; commercial use is not permitted. This is source-available software, not OSI open source.
